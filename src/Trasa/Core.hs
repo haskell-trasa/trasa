@@ -206,8 +206,14 @@ err404 = TrasaErr 404 "Not Found" ""
 err400 :: TrasaErr
 err400 = TrasaErr 400 "Bad Request" ""
 
+err406 :: TrasaErr
+err406 = TrasaErr 406 "Not Acceptable" ""
+
+err415 :: TrasaErr
+err415 = TrasaErr 415 "Unsupported Media Type" ""
+
 dispatchWith :: forall rt m.
-     Monad m
+     Applicative m
   => (forall cs' rq' rp'. rt cs' rq' rp' -> T.Text) -- ^ Method
   -> (forall cs' rq' rp'. rt cs' rq' rp' -> Path CaptureDecoding cs')
   -> (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyDecoding) rq')
@@ -219,19 +225,16 @@ dispatchWith :: forall rt m.
   -> [T.Text] -- ^ Path Pieces
   -> Maybe Content -- ^ Content type and request body
   -> m (Either TrasaErr LBS.ByteString) -- ^ Encoded response
-dispatchWith toMethod toCapDec toReqBody toRespBody makeResponse method accepts enumeratedRoutes encodedPath mcontent = dist $ do
-    HiddenPrepared route decodedPathPieces decodedRequestBody <- parseWith
-      toMethod toCapDec toReqBody enumeratedRoutes method encodedPath mcontent
-    let response = makeResponse route decodedPathPieces decodedRequestBody
-        ResponseBody (Many encodings) = toRespBody route
-    encode <- mapFind err400
-      (\(BodyEncoding names encode) ->
-         if any (flip elem accepts) names then Just encode else Nothing)
-      encodings
-    Right (fmap encode response)
-    where dist :: Either e (m a) -> m (Either e a)
-          dist (Left e)  = return (Left e)
-          dist (Right m) = fmap Right m
+dispatchWith toMethod toCapDec toReqBody toRespBody makeResponse method accepts enumeratedRoutes encodedPath mcontent = sequenceA $ do
+  HiddenPrepared route decodedPathPieces decodedRequestBody <- parseWith
+    toMethod toCapDec toReqBody enumeratedRoutes method encodedPath mcontent
+  let response = makeResponse route decodedPathPieces decodedRequestBody
+      ResponseBody (Many encodings) = toRespBody route
+  encode <- mapFind err406
+    (\(BodyEncoding names encode) ->
+       if any (flip elem accepts) names then Just encode else Nothing)
+    encodings
+  Right (fmap encode response)
 
 -- | This function is exported largely for illustrative purposes.
 --   In actual applications, 'dispatchWith' would be used more often.
@@ -253,12 +256,12 @@ parseWith toMethod toCapDec toReqBody enumeratedRoutes method encodedPath mconte
   decodedRequestBody <- case toReqBody route of
     RequestBodyPresent (Many decodings) -> case mcontent of
       Just (Content typ encodedRequest) -> do
-        decode <- mapFind err404 (\(BodyDecoding names decode) -> if elem typ names then Just decode else Nothing) decodings
+        decode <- mapFind err415 (\(BodyDecoding names decode) -> if elem typ names then Just decode else Nothing) decodings
         reqVal <- badReq (decode encodedRequest)
         Right (RequestBodyPresent (Identity reqVal))
-      Nothing -> Left err404 -- What error goes here?
+      Nothing -> Left err415
     RequestBodyAbsent -> case mcontent of
-      Just _ -> Left err404 -- Whan error goes here?
+      Just _ -> Left err415
       Nothing -> Right RequestBodyAbsent
   return (HiddenPrepared route captures decodedRequestBody)
   where badReq :: Either T.Text b -> Either TrasaErr b
@@ -285,27 +288,6 @@ parseOne = go
       v <- decode x
       vs <- go psNext xsNext
       Just (Identity v :& vs)
-
--- dispatchOne :: forall rt rq cs rp m.
---      Applicative m
---   => (forall cs' rq' rp'. rt cs' rq' rp' -> ResponseBody BodyEncodings rp')
---   -> (forall cs' rq' rp'. rt cs' rq' rp' -> Pieces Identity cs' -> RequestBody Identity rq' -> m rp')
---   -> [String] -- ^ Accept headers
---   -> rt cs rq rp -- ^ The route to dispatch
---   -> Pieces Identity cs
---   -> RequestBody Identity rq
---   -> m String -- ^ Encoded response
--- dispatchOne toResponseBodyEncodings makeResponse accepts route pieces reqBody =
---   let rp = makeResponse route pieces reqBody
---       ResponseBody (BodyEncodings rpEncs) = toResponseBodyEncodings route
---       menc = mapFind (\accept -> mapFind
---           (\(BodyEncoding names enc) ->
---             if elem accept names then Just enc else Nothing
---           ) rpEncs
---         ) accepts
---    in case menc of
---         Nothing -> pure "No valid content type is provided"
---         Just enc -> fmap enc rp
 
 type family Arguments (pieces :: [Type]) (body :: Bodiedness) (result :: Type) :: Type where
   Arguments '[] ('Body b) r = b -> r
