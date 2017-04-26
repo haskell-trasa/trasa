@@ -30,8 +30,8 @@ module Trasa.Core
   , Constructed(..)
   -- * Using Routes
   , prepareWith
-  , dispatchWith
-  , parseWith
+  -- , dispatchWith
+  -- , parseWith
   , linkWith
   , requestWith
   -- * Defining Routes
@@ -61,8 +61,11 @@ import Data.Functor.Identity (Identity(..))
 import Data.Maybe (listToMaybe,fromMaybe,mapMaybe)
 import Control.Monad
 import Data.List.NonEmpty (NonEmpty)
-import Data.Foldable
+import Data.Foldable (toList)
 
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as LBS
+import qualified Data.Text as T
 import Data.Vinyl (Rec(..))
 
 data Bodiedness = Body Type | Bodyless
@@ -76,7 +79,7 @@ newtype ResponseBody rpf rp = ResponseBody { getResponseBody :: rpf rp }
 data Path :: (Type -> Type) -> [Type] -> Type where
   PathNil :: Path cap '[]
   PathConsCapture :: cap a -> Path cap as -> Path cap (a ': as)
-  PathConsMatch :: String -> Path cap as -> Path cap as
+  PathConsMatch :: T.Text -> Path cap as -> Path cap as
 
 mapPath :: (forall x. cf x -> cf' x) -> Path cf ps -> Path cf' ps
 mapPath _ PathNil = PathNil
@@ -91,19 +94,19 @@ newtype Many f a = Many { getMany :: NonEmpty (f a) }
   deriving (Functor)
 
 data BodyDecoding a = BodyDecoding
-  { bodyDecodingNames :: NonEmpty String
-  , bodyDecodingFunction :: String -> Maybe a
+  { bodyDecodingNames :: NonEmpty T.Text
+  , bodyDecodingFunction :: LBS.ByteString -> Either T.Text a
   }
 
 data BodyEncoding a = BodyEncoding
-  { bodyEncodingNames :: NonEmpty String
-  , bodyEncodingFunction :: a -> String
+  { bodyEncodingNames :: NonEmpty T.Text
+  , bodyEncodingFunction :: a -> LBS.ByteString
   }
 
 data BodyCodec a = BodyCodec
-  { bodyCodecNames :: NonEmpty String
-  , bodyCodecEncode :: a -> String
-  , bodyCodecDecode :: String -> Maybe a
+  { bodyCodecNames :: NonEmpty T.Text
+  , bodyCodecEncode :: a -> LBS.ByteString
+  , bodyCodecDecode :: LBS.ByteString -> Either T.Text a
   }
 
 bodyCodecToBodyEncoding :: BodyCodec a -> BodyEncoding a
@@ -117,7 +120,7 @@ infixr 7 ./
 (./) :: (a -> b) -> a -> b
 (./) f a = f a
 
-match :: String -> Path cpf ps -> Path cpf ps
+match :: T.Text -> Path cpf ps -> Path cpf ps
 match = PathConsMatch
 
 capture :: cpf cp -> Path cpf cps -> Path cpf (cp ': cps)
@@ -143,23 +146,23 @@ data CaptureCodec a = CaptureCodec
   , captureCodecDecode :: String -> Maybe a
   }
 
-newtype CaptureEncoding a = CaptureEncoding { appCaptureEncoding :: a -> String }
-newtype CaptureDecoding a = CaptureDecoding { appCaptureDecoding :: String -> Maybe a }
+newtype CaptureEncoding a = CaptureEncoding { appCaptureEncoding :: a -> T.Text }
+newtype CaptureDecoding a = CaptureDecoding { appCaptureDecoding :: T.Text -> Either T.Text a }
 
 -- | This does not use the request body since the request body
 --   does not appear in a URL.
 linkWith :: forall rt rp.
      (forall cs' rq' rp'. rt cs' rq' rp' -> Path CaptureEncoding cs')
   -> Prepared rt rp
-  -> [String]
+  -> [T.Text]
 linkWith toCapEncs (Prepared route captures _) = encodePieces (toCapEncs route) captures
 
 requestWith :: Functor m
-  => (forall cs' rq' rp'. rt cs' rq' rp' -> String)
+  => (forall cs' rq' rp'. rt cs' rq' rp' -> T.Text)
   -> (forall cs' rq' rp'. rt cs' rq' rp' -> Path CaptureEncoding cs')
   -> (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyEncoding) rq')
   -> (forall cs' rq' rp'. rt cs' rq' rp' -> ResponseBody (Many BodyDecoding) rp')
-  -> (String -> [String] -> Maybe Content -> [String] -> m Content) -- ^ method, path pieces, content, accepts -> response
+  -> (T.Text -> [T.Text] -> Maybe Content -> [T.Text] -> m Content) -- ^ method, path pieces, content, accepts -> response
   -> Prepared rt rp
   -> m (Maybe rp)
 requestWith toMethod toCapEncs toReqBody toRespBody run (Prepared route captures reqBody) =
@@ -180,13 +183,15 @@ decodeResponseBody :: ResponseBody (Many BodyDecoding) rp -> Content -> Maybe rp
 decodeResponseBody (ResponseBody (Many _decodings)) =
   error "decodeResponseBody: write me. this actually needs to be written"
 
-encodePieces :: Path CaptureEncoding cps -> Rec Identity cps -> [String]
+encodePieces :: Path CaptureEncoding cps -> Rec Identity cps -> [T.Text]
 encodePieces = go
   where
-  go :: forall cps. Path CaptureEncoding cps -> Rec Identity cps -> [String]
+  go :: forall cps. Path CaptureEncoding cps -> Rec Identity cps -> [T.Text]
   go PathNil RNil = []
   go (PathConsMatch str ps) xs = str : go ps xs
   go (PathConsCapture (CaptureEncoding enc) ps) (Identity x :& xs) = enc x : go ps xs
+
+{-
 
 dispatchWith :: forall rt m.
      Functor m
@@ -195,13 +200,13 @@ dispatchWith :: forall rt m.
   -> (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyDecoding) rq')
   -> (forall cs' rq' rp'. rt cs' rq' rp' -> ResponseBody (Many BodyEncoding) rp')
   -> (forall cs' rq' rp'. rt cs' rq' rp' -> Rec Identity cs' -> RequestBody Identity rq' -> m rp')
-  -> String -- ^ Method
-  -> [String] -- ^ Accept headers
+  -> T.Text -- ^ Method
+  -> [T.Text] -- ^ Accept headers
   -> [Constructed rt] -- ^ All available routes
-  -> m String -- ^ Response in case no route matched
+  -> m T.Text -- ^ Response in case no route matched
   -> [String] -- ^ Path Pieces
   -> Maybe Content -- ^ Content type and request body
-  -> m String -- ^ Encoded response
+  -> m T.Text -- ^ Encoded response
 dispatchWith toMethod toCapDec toReqBody toRespBody makeResponse method accepts enumeratedRoutes defEncodedResp encodedPath mcontent =
   fromMaybe defEncodedResp $ do
     HiddenPrepared route decodedPathPieces decodedRequestBody <- parseWith
@@ -214,12 +219,12 @@ dispatchWith toMethod toCapDec toReqBody toRespBody makeResponse method accepts 
 -- | This function is exported largely for illustrative purposes.
 --   In actual applications, 'dispatchWith' would be used more often.
 parseWith :: forall rt.
-     (forall cs' rq' rp'. rt cs' rq' rp' -> String) -- ^ Method
+     (forall cs' rq' rp'. rt cs' rq' rp' -> T.Text) -- ^ Method
   -> (forall cs' rq' rp'. rt cs' rq' rp' -> Path CaptureDecoding cs')
   -> (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyDecoding) rq')
   -> [Constructed rt] -- ^ All available routes
-  -> String -- ^ Request Method
-  -> [String] -- ^ Path Pieces
+  -> T.Text -- ^ Request Method
+  -> [T.Text] -- ^ Path Pieces
   -> Maybe Content -- ^ Request content type and body
   -> Maybe (HiddenPrepared rt)
 parseWith toMethod toCapDec toReqBody enumeratedRoutes method encodedPath mcontent = do
@@ -283,6 +288,7 @@ parseOne = go
 --         Nothing -> pure "No valid content type is provided"
 --         Just enc -> fmap enc rp
 
+-}
 
 type family Arguments (pieces :: [Type]) (body :: Bodiedness) (result :: Type) :: Type where
   Arguments '[] ('Body b) r = b -> r
