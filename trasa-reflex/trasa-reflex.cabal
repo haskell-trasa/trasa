@@ -15,5 +15,12 @@ cabal-version:       >=1.10
 library
   exposed-modules:     Data.Trasa.Reflex
   build-depends:       base >=4.9 && <4.10
+                     , bytestring == 0.10.*
+                     , text == 1.2.*
+                     , binary == 0.8.*
+                     , http-types == 0.9.*
+                     , reflex == 0.5.*
+                     , reflex-dom == 0.4.*
+                     , trasa == 0.1.*
   hs-source-dirs:      src
   default-language:    Haskell2010
