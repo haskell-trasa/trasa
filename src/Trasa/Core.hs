@@ -9,9 +9,8 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 {-# OPTIONS_GHC -Wall -Werror #-}
-
-module Trasa.Core 
-  ( 
+module Trasa.Core
+  (
   -- * Types
     Bodiedness(..)
   , Path(..)
@@ -25,7 +24,6 @@ module Trasa.Core
   , CaptureEncoding(..)
   , CaptureDecoding(..)
   , Content(..)
-  , Record(..)
   -- ** Existential
   , Prepared(..)
   , HiddenPrepared(..)
@@ -59,12 +57,13 @@ module Trasa.Core
   ) where
 
 import Data.Kind (Type)
-import Data.Functor.Identity
-import Data.Maybe
+import Data.Functor.Identity (Identity(..))
+import Data.Maybe (listToMaybe,fromMaybe,mapMaybe)
 import Control.Monad
 import Data.List.NonEmpty (NonEmpty)
 import Data.Foldable
--- import Data.List
+
+import Data.Vinyl (Rec(..))
 
 data Bodiedness = Body Type | Bodyless
 
@@ -75,9 +74,9 @@ data RequestBody :: (Type -> Type) -> Bodiedness -> Type where
 newtype ResponseBody rpf rp = ResponseBody { getResponseBody :: rpf rp }
 
 data Path :: (Type -> Type) -> [Type] -> Type where
-  PathNil :: Path cap '[] 
-  PathConsCapture :: cap a -> Path cap as -> Path cap (a ': as) 
-  PathConsMatch :: String -> Path cap as -> Path cap as 
+  PathNil :: Path cap '[]
+  PathConsCapture :: cap a -> Path cap as -> Path cap (a ': as)
+  PathConsMatch :: String -> Path cap as -> Path cap as
 
 mapPath :: (forall x. cf x -> cf' x) -> Path cf ps -> Path cf' ps
 mapPath _ PathNil = PathNil
@@ -113,16 +112,12 @@ bodyCodecToBodyEncoding (BodyCodec names enc _) = BodyEncoding names enc
 bodyCodecToBodyDecoding :: BodyCodec a -> BodyDecoding a
 bodyCodecToBodyDecoding (BodyCodec names _ dec) = BodyDecoding names dec
 
-data Record :: (k -> Type) -> [k] -> Type where
-  RecordNil :: Record f '[]
-  RecordCons :: f a -> Record f as -> Record f (a ': as)
-
 infixr 7 ./
 
 (./) :: (a -> b) -> a -> b
 (./) f a = f a
 
-match :: String -> Path cpf ps -> Path cpf ps 
+match :: String -> Path cpf ps -> Path cpf ps
 match = PathConsMatch
 
 capture :: cpf cp -> Path cpf cps -> Path cpf (cp ': cps)
@@ -142,7 +137,7 @@ resp = ResponseBody
 
 -- data Fragment (x :: [Type] -> [Type]) where
 --   FragmentCapture :: Capture a -> Fragment ('(:) a)
-  
+
 data CaptureCodec a = CaptureCodec
   { captureCodecEncode :: a -> String
   , captureCodecDecode :: String -> Maybe a
@@ -154,16 +149,16 @@ newtype CaptureDecoding a = CaptureDecoding { appCaptureDecoding :: String -> Ma
 -- | This does not use the request body since the request body
 --   does not appear in a URL.
 linkWith :: forall rt rp.
-     (forall cs' rq' rp'. rt cs' rq' rp' -> Path CaptureEncoding cs') 
+     (forall cs' rq' rp'. rt cs' rq' rp' -> Path CaptureEncoding cs')
   -> Prepared rt rp
   -> [String]
 linkWith toCapEncs (Prepared route captures _) = encodePieces (toCapEncs route) captures
 
 requestWith :: Functor m
   => (forall cs' rq' rp'. rt cs' rq' rp' -> String)
-  -> (forall cs' rq' rp'. rt cs' rq' rp' -> Path CaptureEncoding cs') 
-  -> (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyEncoding) rq') 
-  -> (forall cs' rq' rp'. rt cs' rq' rp' -> ResponseBody (Many BodyDecoding) rp') 
+  -> (forall cs' rq' rp'. rt cs' rq' rp' -> Path CaptureEncoding cs')
+  -> (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyEncoding) rq')
+  -> (forall cs' rq' rp'. rt cs' rq' rp' -> ResponseBody (Many BodyDecoding) rp')
   -> (String -> [String] -> Maybe Content -> [String] -> m Content) -- ^ method, path pieces, content, accepts -> response
   -> Prepared rt rp
   -> m (Maybe rp)
@@ -178,28 +173,28 @@ requestWith toMethod toCapEncs toReqBody toRespBody run (Prepared route captures
 
 encodeRequestBody :: RequestBody (Many BodyEncoding) rq -> RequestBody Identity rq -> Maybe Content
 encodeRequestBody RequestBodyAbsent RequestBodyAbsent = Nothing
-encodeRequestBody (RequestBodyPresent (Many _encodings)) (RequestBodyPresent (Identity _rq)) = 
+encodeRequestBody (RequestBodyPresent (Many _encodings)) (RequestBodyPresent (Identity _rq)) =
   error "encodeRequestBody: write me. this actually needs to be written"
 
 decodeResponseBody :: ResponseBody (Many BodyDecoding) rp -> Content -> Maybe rp
-decodeResponseBody (ResponseBody (Many _decodings)) = 
+decodeResponseBody (ResponseBody (Many _decodings)) =
   error "decodeResponseBody: write me. this actually needs to be written"
 
-encodePieces :: Path CaptureEncoding cps -> Record Identity cps -> [String]
+encodePieces :: Path CaptureEncoding cps -> Rec Identity cps -> [String]
 encodePieces = go
   where
-  go :: forall cps. Path CaptureEncoding cps -> Record Identity cps -> [String]
-  go PathNil RecordNil = []
+  go :: forall cps. Path CaptureEncoding cps -> Rec Identity cps -> [String]
+  go PathNil RNil = []
   go (PathConsMatch str ps) xs = str : go ps xs
-  go (PathConsCapture (CaptureEncoding enc) ps) (RecordCons (Identity x) xs) = enc x : go ps xs
+  go (PathConsCapture (CaptureEncoding enc) ps) (Identity x :& xs) = enc x : go ps xs
 
 dispatchWith :: forall rt m.
      Functor m
   => (forall cs' rq' rp'. rt cs' rq' rp' -> String) -- ^ Method
-  -> (forall cs' rq' rp'. rt cs' rq' rp' -> Path CaptureDecoding cs') 
-  -> (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyDecoding) rq') 
-  -> (forall cs' rq' rp'. rt cs' rq' rp' -> ResponseBody (Many BodyEncoding) rp') 
-  -> (forall cs' rq' rp'. rt cs' rq' rp' -> Record Identity cs' -> RequestBody Identity rq' -> m rp')
+  -> (forall cs' rq' rp'. rt cs' rq' rp' -> Path CaptureDecoding cs')
+  -> (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyDecoding) rq')
+  -> (forall cs' rq' rp'. rt cs' rq' rp' -> ResponseBody (Many BodyEncoding) rp')
+  -> (forall cs' rq' rp'. rt cs' rq' rp' -> Rec Identity cs' -> RequestBody Identity rq' -> m rp')
   -> String -- ^ Method
   -> [String] -- ^ Accept headers
   -> [Constructed rt] -- ^ All available routes
@@ -207,9 +202,9 @@ dispatchWith :: forall rt m.
   -> [String] -- ^ Path Pieces
   -> Maybe Content -- ^ Content type and request body
   -> m String -- ^ Encoded response
-dispatchWith toMethod toCapDec toReqBody toRespBody makeResponse method accepts enumeratedRoutes defEncodedResp encodedPath mcontent = 
+dispatchWith toMethod toCapDec toReqBody toRespBody makeResponse method accepts enumeratedRoutes defEncodedResp encodedPath mcontent =
   fromMaybe defEncodedResp $ do
-    HiddenPrepared route decodedPathPieces decodedRequestBody <- parseWith 
+    HiddenPrepared route decodedPathPieces decodedRequestBody <- parseWith
       toMethod toCapDec toReqBody enumeratedRoutes method encodedPath mcontent
     let response = makeResponse route decodedPathPieces decodedRequestBody
         ResponseBody (Many encodings) = toRespBody route
@@ -220,8 +215,8 @@ dispatchWith toMethod toCapDec toReqBody toRespBody makeResponse method accepts 
 --   In actual applications, 'dispatchWith' would be used more often.
 parseWith :: forall rt.
      (forall cs' rq' rp'. rt cs' rq' rp' -> String) -- ^ Method
-  -> (forall cs' rq' rp'. rt cs' rq' rp' -> Path CaptureDecoding cs') 
-  -> (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyDecoding) rq') 
+  -> (forall cs' rq' rp'. rt cs' rq' rp' -> Path CaptureDecoding cs')
+  -> (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyDecoding) rq')
   -> [Constructed rt] -- ^ All available routes
   -> String -- ^ Request Method
   -> [String] -- ^ Path Pieces
@@ -245,15 +240,15 @@ parseWith toMethod toCapDec toReqBody enumeratedRoutes method encodedPath mconte
       Nothing -> Just RequestBodyAbsent
   return (HiddenPrepared route captures decodedRequestBody)
 
-parseOne :: 
+parseOne ::
      Path CaptureDecoding cps
   -> [String] -- ^ Path Pieces
-  -> Maybe (Record Identity cps)
+  -> Maybe (Rec Identity cps)
 parseOne = go
   where
-  go :: forall cps. Path CaptureDecoding cps -> [String] -> Maybe (Record Identity cps)
+  go :: forall cps. Path CaptureDecoding cps -> [String] -> Maybe (Rec Identity cps)
   go PathNil xs = case xs of
-    [] -> Just RecordNil
+    [] -> Just RNil
     _ : _ -> Nothing
   go (PathConsMatch s psNext) xs = case xs of
     [] -> Nothing
@@ -265,22 +260,22 @@ parseOne = go
     x : xsNext -> do
       v <- decode x
       vs <- go psNext xsNext
-      Just (RecordCons (Identity v) vs)
+      Just (Identity v :& vs)
 
 -- dispatchOne :: forall rt rq cs rp m.
 --      Applicative m
---   => (forall cs' rq' rp'. rt cs' rq' rp' -> ResponseBody BodyEncodings rp') 
+--   => (forall cs' rq' rp'. rt cs' rq' rp' -> ResponseBody BodyEncodings rp')
 --   -> (forall cs' rq' rp'. rt cs' rq' rp' -> Pieces Identity cs' -> RequestBody Identity rq' -> m rp')
 --   -> [String] -- ^ Accept headers
 --   -> rt cs rq rp -- ^ The route to dispatch
 --   -> Pieces Identity cs
 --   -> RequestBody Identity rq
 --   -> m String -- ^ Encoded response
--- dispatchOne toResponseBodyEncodings makeResponse accepts route pieces reqBody = 
+-- dispatchOne toResponseBodyEncodings makeResponse accepts route pieces reqBody =
 --   let rp = makeResponse route pieces reqBody
 --       ResponseBody (BodyEncodings rpEncs) = toResponseBodyEncodings route
 --       menc = mapFind (\accept -> mapFind
---           (\(BodyEncoding names enc) -> 
+--           (\(BodyEncoding names enc) ->
 --             if elem accept names then Just enc else Nothing
 --           ) rpEncs
 --         ) accepts
@@ -294,16 +289,16 @@ type family Arguments (pieces :: [Type]) (body :: Bodiedness) (result :: Type) :
   Arguments '[] 'Bodyless r = r
   Arguments (c ': cs) b r = c -> Arguments cs b r
 
-prepareWith :: 
-     (forall cs' rq' rp'. rt cs' rq' rp' -> Path pf cs') 
-  -> (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody rqf rq') 
-  -> rt cs rq rp 
+prepareWith ::
+     (forall cs' rq' rp'. rt cs' rq' rp' -> Path pf cs')
+  -> (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody rqf rq')
+  -> rt cs rq rp
   -> Arguments cs rq (Prepared rt rp)
-prepareWith toPath toReqBody route = 
+prepareWith toPath toReqBody route =
   prepareExplicit route (toPath route) (toReqBody route)
 
 prepareExplicit :: forall rt cs rq rp rqf pf.
-     rt cs rq rp 
+     rt cs rq rp
   -> Path pf cs
   -> RequestBody rqf rq
   -> Arguments cs rq (Prepared rt rp)
@@ -311,14 +306,14 @@ prepareExplicit route = go (Prepared route)
   where
   -- Adopted from: https://www.reddit.com/r/haskell/comments/67l9so/currying_a_typelevel_list/dgrghxz/
   go :: forall cs' z.
-        (Record Identity cs' -> RequestBody Identity rq -> z)
-     -> Path pf cs' 
-     -> RequestBody rqf rq 
+        (Rec Identity cs' -> RequestBody Identity rq -> z)
+     -> Path pf cs'
+     -> RequestBody rqf rq
      -> Arguments cs' rq z -- (HList cs', RequestBody Identity rq)
-  go k (PathConsCapture _ pnext) b = \c -> go (\hlist reqBod -> k (RecordCons (Identity c) hlist) reqBod) pnext b
+  go k (PathConsCapture _ pnext) b = \c -> go (\hlist reqBod -> k (Identity c :& hlist) reqBod) pnext b
   go k (PathConsMatch _ pnext) b = go k pnext b
-  go k PathNil RequestBodyAbsent = k RecordNil RequestBodyAbsent
-  go k PathNil (RequestBodyPresent _) = \reqBod -> k RecordNil (RequestBodyPresent (Identity reqBod))
+  go k PathNil RequestBodyAbsent = k RNil RequestBodyAbsent
+  go k PathNil (RequestBodyPresent _) = \reqBod -> k RNil (RequestBodyPresent (Identity reqBod))
 
 data Constructed :: ([Type] -> Bodiedness -> Type -> Type) -> Type where
   Constructed :: forall rt cps rq rp. rt cps rq rp -> Constructed rt
@@ -326,23 +321,23 @@ data Constructed :: ([Type] -> Bodiedness -> Type -> Type) -> Type where
 -- | Only includes the path. Once querystring params get added
 --   to this library, this data type should not have them.
 data Pathed :: ([Type] -> Bodiedness -> Type -> Type) -> Type  where
-  Pathed :: forall rt cps rq rp. rt cps rq rp -> Record Identity cps -> Pathed rt
+  Pathed :: forall rt cps rq rp. rt cps rq rp -> Rec Identity cps -> Pathed rt
 
 -- | Includes the path and the request body (and the querystring
 --   params after they get added to this library).
 data Prepared :: ([Type] -> Bodiedness -> Type -> Type) -> Type -> Type where
-  Prepared :: forall rt ps rq rp. 
-       rt ps rq rp 
-    -> Record Identity ps 
-    -> RequestBody Identity rq 
+  Prepared :: forall rt ps rq rp.
+       rt ps rq rp
+    -> Rec Identity ps
+    -> RequestBody Identity rq
     -> Prepared rt rp
 
 -- | Only needed to implement 'parseWith'. Most users do not need this.
 data HiddenPrepared :: ([Type] -> Bodiedness -> Type -> Type) -> Type where
-  HiddenPrepared :: forall rt ps rq rp. 
-       rt ps rq rp 
-    -> Record Identity ps 
-    -> RequestBody Identity rq 
+  HiddenPrepared :: forall rt ps rq rp.
+       rt ps rq rp
+    -> Rec Identity ps
+    -> RequestBody Identity rq
     -> HiddenPrepared rt
 
 hideResponseType :: Prepared rt rp -> HiddenPrepared rt
@@ -355,4 +350,3 @@ data Content = Content
 
 mapFind :: Foldable f => (a -> Maybe b) -> f a -> Maybe b
 mapFind f = listToMaybe . mapMaybe f . toList
-
