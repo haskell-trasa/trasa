@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE GADTs #-}
@@ -24,14 +25,15 @@ module Trasa.Core
   , CaptureEncoding(..)
   , CaptureDecoding(..)
   , Content(..)
+  , TrasaErr(..)
   -- ** Existential
   , Prepared(..)
   , HiddenPrepared(..)
   , Constructed(..)
   -- * Using Routes
   , prepareWith
-  -- , dispatchWith
-  -- , parseWith
+  , dispatchWith
+  , parseWith
   , linkWith
   , requestWith
   -- * Defining Routes
@@ -58,14 +60,15 @@ module Trasa.Core
 
 import Data.Kind (Type)
 import Data.Functor.Identity (Identity(..))
-import Data.Maybe (listToMaybe,fromMaybe,mapMaybe)
+import Data.Maybe (mapMaybe)
 import Control.Monad
 import Data.List.NonEmpty (NonEmpty)
 import Data.Foldable (toList)
+import Data.Bifunctor (first)
 
-import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import Data.Vinyl (Rec(..))
 
 data Bodiedness = Body Type | Bodyless
@@ -147,7 +150,7 @@ data CaptureCodec a = CaptureCodec
   }
 
 newtype CaptureEncoding a = CaptureEncoding { appCaptureEncoding :: a -> T.Text }
-newtype CaptureDecoding a = CaptureDecoding { appCaptureDecoding :: T.Text -> Either T.Text a }
+newtype CaptureDecoding a = CaptureDecoding { appCaptureDecoding :: T.Text -> Maybe a }
 
 -- | This does not use the request body since the request body
 --   does not appear in a URL.
@@ -191,11 +194,20 @@ encodePieces = go
   go (PathConsMatch str ps) xs = str : go ps xs
   go (PathConsCapture (CaptureEncoding enc) ps) (Identity x :& xs) = enc x : go ps xs
 
-{-
+data TrasaErr = TrasaErr
+  { trasaErrHTTPCode :: Int
+  , trasaErrPhrase :: T.Text
+  , trasaErrBody :: LBS.ByteString }
+
+err404 :: TrasaErr
+err404 = TrasaErr 404 "Not Found" ""
+
+err400 :: TrasaErr
+err400 = TrasaErr 400 "Bad Request" ""
 
 dispatchWith :: forall rt m.
-     Functor m
-  => (forall cs' rq' rp'. rt cs' rq' rp' -> String) -- ^ Method
+     Monad m
+  => (forall cs' rq' rp'. rt cs' rq' rp' -> T.Text) -- ^ Method
   -> (forall cs' rq' rp'. rt cs' rq' rp' -> Path CaptureDecoding cs')
   -> (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyDecoding) rq')
   -> (forall cs' rq' rp'. rt cs' rq' rp' -> ResponseBody (Many BodyEncoding) rp')
@@ -203,18 +215,22 @@ dispatchWith :: forall rt m.
   -> T.Text -- ^ Method
   -> [T.Text] -- ^ Accept headers
   -> [Constructed rt] -- ^ All available routes
-  -> m T.Text -- ^ Response in case no route matched
-  -> [String] -- ^ Path Pieces
+  -> [T.Text] -- ^ Path Pieces
   -> Maybe Content -- ^ Content type and request body
-  -> m T.Text -- ^ Encoded response
-dispatchWith toMethod toCapDec toReqBody toRespBody makeResponse method accepts enumeratedRoutes defEncodedResp encodedPath mcontent =
-  fromMaybe defEncodedResp $ do
+  -> m (Either TrasaErr LBS.ByteString) -- ^ Encoded response
+dispatchWith toMethod toCapDec toReqBody toRespBody makeResponse method accepts enumeratedRoutes encodedPath mcontent = dist $ do
     HiddenPrepared route decodedPathPieces decodedRequestBody <- parseWith
       toMethod toCapDec toReqBody enumeratedRoutes method encodedPath mcontent
     let response = makeResponse route decodedPathPieces decodedRequestBody
         ResponseBody (Many encodings) = toRespBody route
-    encode <- mapFind (\(BodyEncoding names encode) -> if any (flip elem accepts) names then Just encode else Nothing) encodings
-    Just (fmap encode response)
+    encode <- mapFind err400
+      (\(BodyEncoding names encode) ->
+         if any (flip elem accepts) names then Just encode else Nothing)
+      encodings
+    Right (fmap encode response)
+    where dist :: Either e (m a) -> m (Either e a)
+          dist (Left e)  = return (Left e)
+          dist (Right m) = fmap Right m
 
 -- | This function is exported largely for illustrative purposes.
 --   In actual applications, 'dispatchWith' would be used more often.
@@ -226,9 +242,9 @@ parseWith :: forall rt.
   -> T.Text -- ^ Request Method
   -> [T.Text] -- ^ Path Pieces
   -> Maybe Content -- ^ Request content type and body
-  -> Maybe (HiddenPrepared rt)
+  -> Either TrasaErr (HiddenPrepared rt)
 parseWith toMethod toCapDec toReqBody enumeratedRoutes method encodedPath mcontent = do
-  Pathed route captures <- mapFind
+  Pathed route captures <- mapFind err404
     (\(Constructed route) -> do
       guard (toMethod route == method)
       fmap (Pathed route) (parseOne (toCapDec route) encodedPath)
@@ -236,22 +252,24 @@ parseWith toMethod toCapDec toReqBody enumeratedRoutes method encodedPath mconte
   decodedRequestBody <- case toReqBody route of
     RequestBodyPresent (Many decodings) -> case mcontent of
       Just (Content typ encodedRequest) -> do
-        decode <- mapFind (\(BodyDecoding names decode) -> if elem typ names then Just decode else Nothing) decodings
-        reqVal <- decode encodedRequest
-        Just (RequestBodyPresent (Identity reqVal))
-      Nothing -> Nothing
+        decode <- mapFind err404 (\(BodyDecoding names decode) -> if elem typ names then Just decode else Nothing) decodings
+        reqVal <- badReq (decode encodedRequest)
+        Right (RequestBodyPresent (Identity reqVal))
+      Nothing -> Left err404 -- What error goes here?
     RequestBodyAbsent -> case mcontent of
-      Just _ -> Nothing
-      Nothing -> Just RequestBodyAbsent
+      Just _ -> Left err404 -- Whan error goes here?
+      Nothing -> Right RequestBodyAbsent
   return (HiddenPrepared route captures decodedRequestBody)
+  where badReq :: Either T.Text b -> Either TrasaErr b
+        badReq = first (\t -> err400 { trasaErrBody = LBS.fromStrict (T.encodeUtf8 t) })
 
 parseOne ::
      Path CaptureDecoding cps
-  -> [String] -- ^ Path Pieces
+  -> [T.Text] -- ^ Path Pieces
   -> Maybe (Rec Identity cps)
 parseOne = go
   where
-  go :: forall cps. Path CaptureDecoding cps -> [String] -> Maybe (Rec Identity cps)
+  go :: forall cps. Path CaptureDecoding cps -> [T.Text] -> Maybe (Rec Identity cps)
   go PathNil xs = case xs of
     [] -> Just RNil
     _ : _ -> Nothing
@@ -287,8 +305,6 @@ parseOne = go
 --    in case menc of
 --         Nothing -> pure "No valid content type is provided"
 --         Just enc -> fmap enc rp
-
--}
 
 type family Arguments (pieces :: [Type]) (body :: Bodiedness) (result :: Type) :: Type where
   Arguments '[] ('Body b) r = b -> r
@@ -350,9 +366,11 @@ hideResponseType :: Prepared rt rp -> HiddenPrepared rt
 hideResponseType (Prepared a b c) = HiddenPrepared a b c
 
 data Content = Content
-  { contentType :: String
-  , contentData :: String
+  { contentType :: T.Text
+  , contentData :: LBS.ByteString
   }
 
-mapFind :: Foldable f => (a -> Maybe b) -> f a -> Maybe b
-mapFind f = listToMaybe . mapMaybe f . toList
+mapFind :: Foldable f => e -> (a -> Maybe b) -> f a -> Either e b
+mapFind e f = listToEither . mapMaybe f . toList
+  where listToEither [] = Left e
+        listToEither (x:_) = Right x
