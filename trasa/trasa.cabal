@@ -10,7 +10,6 @@ maintainer:          andrew.thaddeus@gmail.com
 copyright:           2017 Andrew Martin
 category:            Web
 build-type:          Simple
-extra-source-files:  README.md
 cabal-version:       >=1.10
 
 library
