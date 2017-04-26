@@ -145,8 +145,8 @@ resp = ResponseBody
 --   FragmentCapture :: Capture a -> Fragment ('(:) a)
 
 data CaptureCodec a = CaptureCodec
-  { captureCodecEncode :: a -> String
-  , captureCodecDecode :: String -> Maybe a
+  { captureCodecEncode :: a -> T.Text
+  , captureCodecDecode :: T.Text -> Maybe a
   }
 
 newtype CaptureEncoding a = CaptureEncoding { appCaptureEncoding :: a -> T.Text }
@@ -197,7 +197,8 @@ encodePieces = go
 data TrasaErr = TrasaErr
   { trasaErrHTTPCode :: Int
   , trasaErrPhrase :: T.Text
-  , trasaErrBody :: LBS.ByteString }
+  , trasaErrBody :: LBS.ByteString
+  } deriving (Show,Eq,Ord)
 
 err404 :: TrasaErr
 err404 = TrasaErr 404 "Not Found" ""

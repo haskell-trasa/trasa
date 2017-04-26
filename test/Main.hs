@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE GADTs #-}
@@ -7,7 +8,11 @@
 
 import Text.Read (readMaybe)
 import Trasa.Core
+import Data.Vinyl
 import Data.Kind (Type)
+
+import qualified Data.ByteString.Lazy.Char8 as LBSC
+import qualified Data.Text as T
 
 import Test.Tasty
 import Test.Tasty.QuickCheck as QC
@@ -31,7 +36,7 @@ unitTests = testGroup "Unit Tests"
   , testCase "link left pad route"
       $ link (prepare LeftPadR 5 "foo") @?= ["pad","left","5"]
   , testCase "parse addition route"
-      $ parse ["add","6","3"] Nothing @?= Just (hideResponseType (prepare AdditionR 6 3))
+      $ parse ["add","6","3"] Nothing @?= Right (hideResponseType (prepare AdditionR 6 3))
   ]
 
 data Route :: [Type] -> Bodiedness -> Type -> Type where
@@ -43,11 +48,11 @@ data Route :: [Type] -> Bodiedness -> Type -> Type where
 prepare :: Route cs rq rp -> Arguments cs rq (Prepared Route rp)
 prepare = prepareWith (metaPath . meta) (metaRequestBody . meta)
 
-link :: Prepared Route rp -> [String]
+link :: Prepared Route rp -> [T.Text]
 link = linkWith (mapPath (CaptureEncoding . captureCodecEncode) . metaPath . meta)
 
-parse :: [String] -> Maybe Content -> Maybe (HiddenPrepared Route)
-parse = parseWith 
+parse :: [T.Text] -> Maybe Content -> Either TrasaErr (HiddenPrepared Route)
+parse = parseWith
   (metaMethod . meta)
   (mapPath (CaptureDecoding . captureCodecDecode) . metaPath . meta)
   (mapRequestBody (Many . pure . bodyCodecToBodyDecoding) . metaRequestBody . meta)
@@ -61,7 +66,7 @@ data Meta ps rq rp = Meta
   { metaPath :: Path CaptureCodec ps
   , metaRequestBody :: RequestBody BodyCodec rq
   , metaResponseBody :: ResponseBody BodyCodec rp
-  , metaMethod :: String
+  , metaMethod :: T.Text
   }
 
 meta :: Route ps rq rp -> Meta ps rq rp
@@ -77,16 +82,21 @@ meta x = case x of
     (body bodyString) (resp bodyString) "get"
 
 int :: CaptureCodec Int
-int = CaptureCodec show readMaybe
+int = CaptureCodec (T.pack . show) (readMaybe . T.unpack)
 
 string :: CaptureCodec String
-string = CaptureCodec id Just
+string = CaptureCodec T.pack (Just . T.unpack)
 
 bodyString :: BodyCodec String
-bodyString = BodyCodec (pure "text/plain") id Just
+bodyString = BodyCodec (pure "text/plain") LBSC.pack (Right . LBSC.unpack)
+
+note :: e -> Maybe a -> Either e a
+note e Nothing = Left e
+note _ (Just x) = Right x
 
 bodyInt :: BodyCodec Int
-bodyInt = BodyCodec (pure "text/plain") show readMaybe
+bodyInt = BodyCodec (pure "text/plain") (LBSC.pack . show)
+                    (note "Could not decode int" . readMaybe . LBSC.unpack)
 
 
 -- This instance is defined only so that the test suite can do
@@ -101,12 +111,6 @@ instance Eq (HiddenPrepared Route) where
 
 instance Show (HiddenPrepared Route) where
   show _ = "HiddenPrepared {..}"
-
-instance Eq (Record f '[]) where
-  RecordNil == RecordNil = True
-
-instance (Eq (f a), Eq (Record f as)) => Eq (Record f (a ': as)) where
-  RecordCons a as == RecordCons b bs = a == b && as == bs
 
 instance Eq (RequestBody f 'Bodyless) where
   RequestBodyAbsent == RequestBodyAbsent = True
