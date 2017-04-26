@@ -219,13 +219,13 @@ dispatchWith :: forall rt m.
   -> (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyDecoding) rq')
   -> (forall cs' rq' rp'. rt cs' rq' rp' -> ResponseBody (Many BodyEncoding) rp')
   -> (forall cs' rq' rp'. rt cs' rq' rp' -> Rec Identity cs' -> RequestBody Identity rq' -> m rp')
+  -> [Constructed rt] -- ^ All available routes
   -> T.Text -- ^ Method
   -> [T.Text] -- ^ Accept headers
-  -> [Constructed rt] -- ^ All available routes
   -> [T.Text] -- ^ Path Pieces
   -> Maybe Content -- ^ Content type and request body
   -> m (Either TrasaErr LBS.ByteString) -- ^ Encoded response
-dispatchWith toMethod toCapDec toReqBody toRespBody makeResponse method accepts enumeratedRoutes encodedPath mcontent = sequenceA $ do
+dispatchWith toMethod toCapDec toReqBody toRespBody makeResponse enumeratedRoutes method accepts encodedPath mcontent = sequenceA $ do
   HiddenPrepared route decodedPathPieces decodedRequestBody <- parseWith
     toMethod toCapDec toReqBody enumeratedRoutes method encodedPath mcontent
   let response = makeResponse route decodedPathPieces decodedRequestBody
