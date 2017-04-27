@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-module Data.Trasa.Reflex where
+{-# OPTIONS_GHC -Wall -Werror #-}
+module Data.Trasa.Reflex (request,serve) where
 
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -9,6 +10,8 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS (toStrict,fromStrict)
 import qualified Data.Binary.Builder as B (toLazyByteString)
 
+import Data.Functor.Identity (Identity(..))
+import Data.Vinyl (Rec(..))
 import Data.Foldable (toList)
 import qualified Data.Map.Strict as M
 import Network.HTTP.Types.URI
@@ -25,26 +28,26 @@ request :: forall t m rt rp.
   -> Event t (Prepared rt rp)
   -> m (Event t (Either T.Text rp))
 request toMethod toCapEncs toReqBody toRespBody prepared =
-  fmap parseXhrResponse <$> performRequestsAsync (xhrRequest <$> prepared)
+  fmap parseXhrResponse <$> performRequestsAsync (buildXhrRequest <$> prepared)
   where parseXhrResponse :: (Prepared rt rp, XhrResponse) -> Either T.Text rp
         parseXhrResponse (Prepared route _ _, res) = case M.lookup "Content-Type" (_xhrResponse_headers res) of
           Just content -> case _xhrResponse_responseText res of
-            Just text -> let bs = LBS.fromStrict (TE.encodeUtf8 text) in
+            Just txt -> let bs = LBS.fromStrict (TE.encodeUtf8 txt) in
               case decodeResponseBody (toRespBody route) (Content content bs) of
                 Just a -> Right a
                 Nothing -> Left "Could not decode body"
             Nothing -> Left "No body returned from server"
           Nothing -> Left "No content type from server"
-        xhrRequest :: Prepared rt rp -> (Prepared rt rp, XhrRequest BS.ByteString)
-        xhrRequest p@(Prepared route captures reqBody) =
+        buildXhrRequest :: Prepared rt rp -> (Prepared rt rp, XhrRequest BS.ByteString)
+        buildXhrRequest p@(Prepared route _ _) =
           (p, XhrRequest (toMethod route) (url p) conf)
           where url :: Prepared rt rp -> T.Text
-                -- This use of decodeUtf8 is safe because http-types has a postconditon
-                -- that the builder is utf8 encoded
+                -- This use of decodeUtf8 is safe because http-types.encodePathSegments
+                -- has a postconditon that the builder is utf8 encoded
                 url = TE.decodeUtf8 . LBS.toStrict . B.toLazyByteString . encodePathSegments . linkWith toCapEncs
                 conf :: XhrRequestConfig BS.ByteString
                 conf = def & xhrRequestConfig_sendData .~ maybe "" (LBS.toStrict . contentData) content
                            & xhrRequestConfig_headers .~ headers
                 headers = maybe acceptHeader (\ct -> M.insert "Content-Type" (contentType ct) acceptHeader) content
                 acceptHeader = "Accept" =: T.intercalate ", " (toList accepts)
-                Payload pathSegments content accepts = payloadWith toCapEncs toReqBody toRespBody p
+                Payload _ content accepts = payloadWith toCapEncs toReqBody toRespBody p

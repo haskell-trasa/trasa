@@ -20,6 +20,7 @@ library
                      , binary == 0.8.*
                      , http-types == 0.9.*
                      , containers == 0.5.*
+                     , vinyl == 0.5.*
                      , reflex == 0.5.*
                      , reflex-dom == 0.4.*
                      , trasa == 0.1.*

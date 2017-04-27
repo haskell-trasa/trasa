@@ -13,6 +13,8 @@ cabal-version:       >=1.10
 executable frontend
   main-is:             Main.hs
   build-depends:       base >=4.9 && <4.10
+                     , file-embed == 0.0.*
+                     , reflex-dom == 0.4.*
                      , common
   hs-source-dirs:      app
   default-language:    Haskell2010
