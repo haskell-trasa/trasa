@@ -52,6 +52,7 @@ module Trasa.Core
   -- * Converting Route Metadata
   , mapPath
   , mapRequestBody
+  , mapResponseBody
   , bodyCodecToBodyEncoding
   , bodyCodecToBodyDecoding
   -- * Argument Currying
@@ -82,7 +83,14 @@ data RequestBody :: (Type -> Type) -> Bodiedness -> Type where
   RequestBodyPresent :: f a -> RequestBody f ('Body a)
   RequestBodyAbsent :: RequestBody f 'Bodyless
 
+mapRequestBody :: (forall x. rqf x -> rqf' x) -> RequestBody rqf rq -> RequestBody rqf' rq
+mapRequestBody _ RequestBodyAbsent = RequestBodyAbsent
+mapRequestBody f (RequestBodyPresent reqBod) = RequestBodyPresent (f reqBod)
+
 newtype ResponseBody rpf rp = ResponseBody { getResponseBody :: rpf rp }
+
+mapResponseBody :: (forall x. rpf x -> rpf' x) -> ResponseBody rpf rq -> ResponseBody rpf' rq
+mapResponseBody f (ResponseBody resBod) = ResponseBody (f resBod)
 
 data Path :: (Type -> Type) -> [Type] -> Type where
   PathNil :: Path cap '[]
@@ -93,10 +101,6 @@ mapPath :: (forall x. cf x -> cf' x) -> Path cf ps -> Path cf' ps
 mapPath _ PathNil = PathNil
 mapPath f (PathConsMatch s pnext) = PathConsMatch s (mapPath f pnext)
 mapPath f (PathConsCapture c pnext) = PathConsCapture (f c) (mapPath f pnext)
-
-mapRequestBody :: (forall x. rqf x -> rqf' x) -> RequestBody rqf rq -> RequestBody rqf' rq
-mapRequestBody _ RequestBodyAbsent = RequestBodyAbsent
-mapRequestBody f (RequestBodyPresent reqBod) = RequestBodyPresent (f reqBod)
 
 newtype Many f a = Many { getMany :: NonEmpty (f a) }
   deriving (Functor)

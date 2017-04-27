@@ -39,9 +39,16 @@ let bootstrap = import <nixpkgs> {};
                 ghc-pkg --package-db="$packageConfDir" recache
               '';
             } else {}));
+          # Deps
           vinyl = lib.dontCheck super.vinyl;
+          # Core Libraries
           trasa = build ../trasa;
+          trasa-server = build ../trasa-server;
           trasa-reflex = build ../trasa-reflex;
+          # Example
+          common = build ../example/common;
+          frontend = build ../example/frontend;
+          backend = build ../example/backend;
         };
     };
     drv = builtins.getAttr package overrides;
