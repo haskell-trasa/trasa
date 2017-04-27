@@ -2,6 +2,8 @@ resolver: lts-8.12
 packages:
 - './trasa'
 - './trasa-server'
+- './example/common'
+- './example/backend'
 extra-deps: []
 flags: {}
 extra-package-dbs: []

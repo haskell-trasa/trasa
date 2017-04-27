@@ -38,6 +38,7 @@ module Trasa.Core
   , linkWith
   , payloadWith
   , requestWith
+  , handler
   -- * Defining Routes
   -- ** Path
   , match
@@ -351,6 +352,19 @@ prepareExplicit route = go (Prepared route)
   go k (PathConsMatch _ pnext) b = go k pnext b
   go k PathNil RequestBodyAbsent = k RNil RequestBodyAbsent
   go k PathNil (RequestBodyPresent _) = \reqBod -> k RNil (RequestBodyPresent (Identity reqBod))
+
+handler :: forall cs rq x. 
+     Rec Identity cs 
+  -> RequestBody Identity rq 
+  -> Arguments cs rq x 
+  -> x
+handler = go
+  where
+  go :: forall cs'. Rec Identity cs' -> RequestBody Identity rq -> Arguments cs' rq x -> x
+  go (Identity c :& cs) b f = go cs b (f c)
+  go RNil RequestBodyAbsent f = f
+  go RNil (RequestBodyPresent (Identity b)) f = f b
+
 
 data Constructed :: ([Type] -> Bodiedness -> Type -> Type) -> Type where
   Constructed :: forall rt cps rq rp. rt cps rq rp -> Constructed rt
