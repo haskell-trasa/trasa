@@ -18,8 +18,17 @@ import Test.Tasty
 import Test.Tasty.QuickCheck as QC
 import Test.Tasty.HUnit
 
+import Test.DocTest (doctest)
+
 main :: IO ()
-main = defaultMain tests
+main = do
+  putStrLn "\nRUNNING DOCTESTS"
+  doctest 
+    [ "src/Trasa/Core.hs"
+    , "src/Trasa/Tutorial.hs"
+    ]
+  putStrLn "\nRUNNING OTHER TESTS"
+  defaultMain tests
 
 tests :: TestTree
 tests = testGroup "Tests" [properties, unitTests]
@@ -36,7 +45,7 @@ unitTests = testGroup "Unit Tests"
   , testCase "link left pad route"
       $ link (prepare LeftPadR 5 "foo") @?= ["pad","left","5"]
   , testCase "parse addition route"
-      $ parse ["add","6","3"] Nothing @?= Right (hideResponseType (prepare AdditionR 6 3))
+      $ parse ["add","6","3"] Nothing @?= Right (conceal (prepare AdditionR 6 3))
   ]
 
 data Route :: [Type] -> Bodiedness -> Type -> Type where
@@ -51,7 +60,7 @@ prepare = prepareWith (metaPath . meta) (metaRequestBody . meta)
 link :: Prepared Route rp -> [T.Text]
 link = linkWith (mapPath (CaptureEncoding . captureCodecEncode) . metaPath . meta)
 
-parse :: [T.Text] -> Maybe Content -> Either TrasaErr (HiddenPrepared Route)
+parse :: [T.Text] -> Maybe Content -> Either TrasaErr (Concealed Route)
 parse = parseWith
   (metaMethod . meta)
   (mapPath (CaptureDecoding . captureCodecDecode) . metaPath . meta)
@@ -102,15 +111,15 @@ bodyInt = BodyCodec (pure "text/plain") (LBSC.pack . show)
 -- This instance is defined only so that the test suite can do
 -- its job. It not not neccessary or recommended to write this
 -- instance in production code.
-instance Eq (HiddenPrepared Route) where
-  HiddenPrepared rt1 ps1 rq1 == HiddenPrepared rt2 ps2 rq2 = case (rt1,rt2) of
+instance Eq (Concealed Route) where
+  Concealed rt1 ps1 rq1 == Concealed rt2 ps2 rq2 = case (rt1,rt2) of
     (AdditionR,AdditionR) -> ps1 == ps2 && rq1 == rq2
     (IdentityR,IdentityR) -> ps1 == ps2 && rq1 == rq2
     (LeftPadR,LeftPadR) -> case (rq1,rq2) of
       (RequestBodyPresent a, RequestBodyPresent b) -> ps1 == ps2 && a == b
 
-instance Show (HiddenPrepared Route) where
-  show _ = "HiddenPrepared {..}"
+instance Show (Concealed Route) where
+  show _ = "Concealed {..}"
 
 instance Eq (RequestBody f 'Bodyless) where
   RequestBodyAbsent == RequestBodyAbsent = True

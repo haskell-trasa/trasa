@@ -29,7 +29,7 @@ module Trasa.Core
   , TrasaErr(..)
   -- ** Existential
   , Prepared(..)
-  , HiddenPrepared(..)
+  , Concealed(..)
   , Constructed(..)
   -- * Using Routes
   , prepareWith
@@ -38,6 +38,7 @@ module Trasa.Core
   , linkWith
   , payloadWith
   , requestWith
+  , handler
   -- * Defining Routes
   -- ** Path
   , match
@@ -62,9 +63,12 @@ module Trasa.Core
   -- * Argument Currying
   , Arguments
   -- * Random Stuff
-  , hideResponseType
+  , conceal
   , encodeRequestBody
   , decodeResponseBody
+  -- * Show/Read Codecs
+  , showReadBodyCodec
+  , showReadCaptureCodec
   ) where
 
 import Data.Kind (Type)
@@ -75,11 +79,16 @@ import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import Data.Foldable (toList)
 import Data.Bifunctor (first)
+import Text.Read (readEither,readMaybe)
 
 import qualified Data.ByteString.Lazy as LBS
+import qualified Data.ByteString.Lazy.Char8 as LBC
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Vinyl (Rec(..))
+
+-- $setup
+-- >>> :set -XTypeInType
 
 data Bodiedness = Body Type | Bodyless
 
@@ -122,6 +131,9 @@ data BodyEncoding a = BodyEncoding
   , bodyEncodingFunction :: a -> LBS.ByteString
   }
 
+-- Note to self, we maybe should change this to use list instead of
+-- non-empty list. When encoding unit, we actually want
+-- to omit the Content-Type header.
 data BodyCodec a = BodyCodec
   { bodyCodecNames :: NonEmpty T.Text
   , bodyCodecEncode :: a -> LBS.ByteString
@@ -181,6 +193,8 @@ linkWith :: forall rt rp.
   -> Prepared rt rp
   -> [T.Text]
 linkWith toCapEncs (Prepared route captures _) = encodePieces (toCapEncs route) captures
+-- We should probably go ahead and just URL encode the path 
+-- when someone calls linkWith.
 
 data Payload = Payload
   { payloadPath :: [T.Text]
@@ -271,7 +285,7 @@ dispatchWith :: forall rt m.
   -> Maybe Content -- ^ Content type and request body
   -> m (Either TrasaErr LBS.ByteString) -- ^ Encoded response
 dispatchWith toMethod toCapDec toReqBody toRespBody makeResponse enumeratedRoutes method accepts encodedPath mcontent = sequenceA $ do
-  HiddenPrepared route decodedPathPieces decodedRequestBody <- parseWith
+  Concealed route decodedPathPieces decodedRequestBody <- parseWith
     toMethod toCapDec toReqBody enumeratedRoutes method encodedPath mcontent
   let response = makeResponse route decodedPathPieces decodedRequestBody
       ResponseBody (Many encodings) = toRespBody route
@@ -291,7 +305,7 @@ parseWith :: forall rt.
   -> T.Text -- ^ Request Method
   -> [T.Text] -- ^ Path Pieces
   -> Maybe Content -- ^ Request content type and body
-  -> Either TrasaErr (HiddenPrepared rt)
+  -> Either TrasaErr (Concealed rt)
 parseWith toMethod toCapDec toReqBody enumeratedRoutes method encodedPath mcontent = do
   Pathed route captures <- mapFindE err404
     (\(Constructed route) -> do
@@ -308,7 +322,7 @@ parseWith toMethod toCapDec toReqBody enumeratedRoutes method encodedPath mconte
     RequestBodyAbsent -> case mcontent of
       Just _ -> Left err415
       Nothing -> Right RequestBodyAbsent
-  return (HiddenPrepared route captures decodedRequestBody)
+  return (Concealed route captures decodedRequestBody)
   where badReq :: Either T.Text b -> Either TrasaErr b
         badReq = first (\t -> err400 { trasaErrBody = LBS.fromStrict (T.encodeUtf8 t) })
 
@@ -334,6 +348,15 @@ parseOne = go
       vs <- go psNext xsNext
       Just (Identity v :& vs)
 
+-- | A closed, total type family provided as a convenience to end users.
+--   Other function is this library take advantage of 'Arguments' to allow
+--   end users use normal function application. Without this, users would 
+--   need to write out 'Record' and 'RequestBody' values by hand, which
+--   is tedious.
+--
+--   >>> :kind! Arguments '[Int,Bool] 'Bodyless Double
+--   Arguments '[Int,Bool] 'Bodyless Double :: *
+--   = Int -> Bool -> Double
 type family Arguments (pieces :: [Type]) (body :: Bodiedness) (result :: Type) :: Type where
   Arguments '[] ('Body b) r = b -> r
   Arguments '[] 'Bodyless r = r
@@ -365,11 +388,30 @@ prepareExplicit route = go (Prepared route)
   go k PathNil RequestBodyAbsent = k RNil RequestBodyAbsent
   go k PathNil (RequestBodyPresent _) = \reqBod -> k RNil (RequestBodyPresent (Identity reqBod))
 
+handler :: forall cs rq x. 
+     Rec Identity cs 
+  -> RequestBody Identity rq 
+  -> Arguments cs rq x 
+  -> x
+handler = go
+  where
+  go :: forall cs'. Rec Identity cs' -> RequestBody Identity rq -> Arguments cs' rq x -> x
+  go (Identity c :& cs) b f = go cs b (f c)
+  go RNil RequestBodyAbsent f = f
+  go RNil (RequestBodyPresent (Identity b)) f = f b
+
+-- | A route with all types hidden: the captures, the request body,
+--   and the response body. This is needed so that users can
+--   enumerate over all the routes.
 data Constructed :: ([Type] -> Bodiedness -> Type -> Type) -> Type where
   Constructed :: forall rt cps rq rp. rt cps rq rp -> Constructed rt
+-- I dont really like the name Constructed, but I don't want to call it
+-- Some or Any since these get used a lot and a conflict would be likely.
+-- Think, think, think.
 
 -- | Only includes the path. Once querystring params get added
---   to this library, this data type should not have them.
+--   to this library, this data type should not have them. This
+--   type is only used internally and should not be exported.
 data Pathed :: ([Type] -> Bodiedness -> Type -> Type) -> Type  where
   Pathed :: forall rt cps rq rp. rt cps rq rp -> Rec Identity cps -> Pathed rt
 
@@ -383,16 +425,20 @@ data Prepared :: ([Type] -> Bodiedness -> Type -> Type) -> Type -> Type where
     -> Prepared rt rp
 
 -- | Only needed to implement 'parseWith'. Most users do not need this.
-data HiddenPrepared :: ([Type] -> Bodiedness -> Type -> Type) -> Type where
-  HiddenPrepared :: forall rt ps rq rp.
+--   If you need to create a route hierarchy to provide breadcrumbs,
+--   then you will need this.
+data Concealed :: ([Type] -> Bodiedness -> Type -> Type) -> Type where
+  Concealed :: forall rt ps rq rp.
        rt ps rq rp
     -> Rec Identity ps
     -> RequestBody Identity rq
-    -> HiddenPrepared rt
+    -> Concealed rt
 
-hideResponseType :: Prepared rt rp -> HiddenPrepared rt
-hideResponseType (Prepared a b c) = HiddenPrepared a b c
+-- | Conceal the response type.
+conceal :: Prepared rt rp -> Concealed rt
+conceal (Prepared a b c) = Concealed a b c
 
+-- | The HTTP content type and body.
 data Content = Content
   { contentType :: T.Text
   , contentData :: LBS.ByteString
@@ -405,3 +451,13 @@ mapFindE :: Foldable f => e -> (a -> Maybe b) -> f a -> Either e b
 mapFindE e f = listToEither . mapMaybe f . toList
   where listToEither [] = Left e
         listToEither (x:_) = Right x
+
+showReadBodyCodec :: (Show a, Read a) => BodyCodec a
+showReadBodyCodec = BodyCodec 
+  (pure "text/haskell")
+  (LBC.pack . show)
+  (first T.pack . readEither . LBC.unpack)
+
+showReadCaptureCodec :: (Show a, Read a) => CaptureCodec a
+showReadCaptureCodec = CaptureCodec (T.pack . show) (readMaybe . T.unpack)
+
