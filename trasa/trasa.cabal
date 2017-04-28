@@ -1,21 +1,28 @@
-name:                trasa
-version:             0.1
--- synopsis:
--- description:
-homepage:            https://github.com/andrewthad/trasa#readme
-license:             BSD3
-license-file:        LICENSE
-author:              Andrew Martin
-maintainer:          andrew.thaddeus@gmail.com
-copyright:           2017 Andrew Martin
-category:            Web
-build-type:          Simple
-cabal-version:       >=1.10
+name: trasa
+version: 0.1
+synopsis:
+homepage: https://github.com/andrewthad/trasa#readme
+license: BSD3
+license-file: LICENSE
+author: Andrew Martin
+maintainer: andrew.thaddeus@gmail.com
+copyright: 2017 Andrew Martin
+category: Web
+build-type: Simple
+cabal-version: >=1.10
+description:
+  This library is a solution for http-based routing and dispatch. It's
+  goals are similar to the goals of `servant`. However, `trasa` relies
+  on very different mechanisms to accomplish this. There are no typeclasses
+  in this library, and there is a single closed type family that is provided
+  as a convenience. All of the real works is accomplish with GADTs, 
+  universal quantification, and plain old haskell data types.
 
 library
   hs-source-dirs:      src
   exposed-modules:
     Trasa.Core
+    Trasa.Tutorial
   build-depends:
       base >= 4.7 && < 5
     , bytestring == 0.10.*
@@ -36,6 +43,7 @@ test-suite test
     , bytestring
     , text
     , vinyl
+    , doctest
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   default-language: Haskell2010
 

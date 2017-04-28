@@ -29,7 +29,7 @@ module Trasa.Core
   , TrasaErr(..)
   -- ** Existential
   , Prepared(..)
-  , HiddenPrepared(..)
+  , Concealed(..)
   , Constructed(..)
   -- * Using Routes
   , prepareWith
@@ -59,9 +59,12 @@ module Trasa.Core
   -- * Argument Currying
   , Arguments
   -- * Random Stuff
-  , hideResponseType
+  , conceal
   , encodeRequestBody
   , decodeResponseBody
+  -- * Show/Read Codecs
+  , showReadBodyCodec
+  , showReadCaptureCodec
   ) where
 
 import Data.Kind (Type)
@@ -72,8 +75,10 @@ import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import Data.Foldable (toList)
 import Data.Bifunctor (first)
+import Text.Read (readEither,readMaybe)
 
 import qualified Data.ByteString.Lazy as LBS
+import qualified Data.ByteString.Lazy.Char8 as LBC
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Vinyl (Rec(..))
@@ -116,6 +121,9 @@ data BodyEncoding a = BodyEncoding
   , bodyEncodingFunction :: a -> LBS.ByteString
   }
 
+-- Note to self, we maybe should change this to use list instead of
+-- non-empty list. When encoding unit, we actually want
+-- to omit the Content-Type header.
 data BodyCodec a = BodyCodec
   { bodyCodecNames :: NonEmpty T.Text
   , bodyCodecEncode :: a -> LBS.ByteString
@@ -169,6 +177,8 @@ linkWith :: forall rt rp.
   -> Prepared rt rp
   -> [T.Text]
 linkWith toCapEncs (Prepared route captures _) = encodePieces (toCapEncs route) captures
+-- We should probably go ahead and just URL encode the path 
+-- when someone calls linkWith.
 
 data Payload = Payload
   { payloadPath :: [T.Text]
@@ -259,7 +269,7 @@ dispatchWith :: forall rt m.
   -> Maybe Content -- ^ Content type and request body
   -> m (Either TrasaErr LBS.ByteString) -- ^ Encoded response
 dispatchWith toMethod toCapDec toReqBody toRespBody makeResponse enumeratedRoutes method accepts encodedPath mcontent = sequenceA $ do
-  HiddenPrepared route decodedPathPieces decodedRequestBody <- parseWith
+  Concealed route decodedPathPieces decodedRequestBody <- parseWith
     toMethod toCapDec toReqBody enumeratedRoutes method encodedPath mcontent
   let response = makeResponse route decodedPathPieces decodedRequestBody
       ResponseBody (Many encodings) = toRespBody route
@@ -279,7 +289,7 @@ parseWith :: forall rt.
   -> T.Text -- ^ Request Method
   -> [T.Text] -- ^ Path Pieces
   -> Maybe Content -- ^ Request content type and body
-  -> Either TrasaErr (HiddenPrepared rt)
+  -> Either TrasaErr (Concealed rt)
 parseWith toMethod toCapDec toReqBody enumeratedRoutes method encodedPath mcontent = do
   Pathed route captures <- mapFindE err404
     (\(Constructed route) -> do
@@ -296,7 +306,7 @@ parseWith toMethod toCapDec toReqBody enumeratedRoutes method encodedPath mconte
     RequestBodyAbsent -> case mcontent of
       Just _ -> Left err415
       Nothing -> Right RequestBodyAbsent
-  return (HiddenPrepared route captures decodedRequestBody)
+  return (Concealed route captures decodedRequestBody)
   where badReq :: Either T.Text b -> Either TrasaErr b
         badReq = first (\t -> err400 { trasaErrBody = LBS.fromStrict (T.encodeUtf8 t) })
 
@@ -384,15 +394,17 @@ data Prepared :: ([Type] -> Bodiedness -> Type -> Type) -> Type -> Type where
     -> Prepared rt rp
 
 -- | Only needed to implement 'parseWith'. Most users do not need this.
-data HiddenPrepared :: ([Type] -> Bodiedness -> Type -> Type) -> Type where
-  HiddenPrepared :: forall rt ps rq rp.
+--   If you need to create a route hierarchy to provide breadcrumbs,
+--   then you will need this.
+data Concealed :: ([Type] -> Bodiedness -> Type -> Type) -> Type where
+  Concealed :: forall rt ps rq rp.
        rt ps rq rp
     -> Rec Identity ps
     -> RequestBody Identity rq
-    -> HiddenPrepared rt
+    -> Concealed rt
 
-hideResponseType :: Prepared rt rp -> HiddenPrepared rt
-hideResponseType (Prepared a b c) = HiddenPrepared a b c
+conceal :: Prepared rt rp -> Concealed rt
+conceal (Prepared a b c) = Concealed a b c
 
 data Content = Content
   { contentType :: T.Text
@@ -406,3 +418,13 @@ mapFindE :: Foldable f => e -> (a -> Maybe b) -> f a -> Either e b
 mapFindE e f = listToEither . mapMaybe f . toList
   where listToEither [] = Left e
         listToEither (x:_) = Right x
+
+showReadBodyCodec :: (Show a, Read a) => BodyCodec a
+showReadBodyCodec = BodyCodec 
+  (pure "text/haskell")
+  (LBC.pack . show)
+  (first T.pack . readEither . LBC.unpack)
+
+showReadCaptureCodec :: (Show a, Read a) => CaptureCodec a
+showReadCaptureCodec = CaptureCodec (T.pack . show) (readMaybe . T.unpack)
+
