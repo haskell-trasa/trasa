@@ -51,10 +51,14 @@ module Trasa.Core
   , resp
   -- * Converting Route Metadata
   , mapPath
+  , mapMany
   , mapRequestBody
   , mapResponseBody
+  -- * Converting Codecs
   , bodyCodecToBodyEncoding
   , bodyCodecToBodyDecoding
+  , captureCodecToCaptureEncoding
+  , captureCodecToCaptureDecoding
   -- * Argument Currying
   , Arguments
   -- * Random Stuff
@@ -104,6 +108,9 @@ mapPath f (PathConsCapture c pnext) = PathConsCapture (f c) (mapPath f pnext)
 
 newtype Many f a = Many { getMany :: NonEmpty (f a) }
   deriving (Functor)
+
+mapMany :: (forall x. f x -> g x) -> Many f a -> Many g a
+mapMany eta (Many m) = Many (fmap eta m)
 
 data BodyDecoding a = BodyDecoding
   { bodyDecodingNames :: NonEmpty T.Text
@@ -160,6 +167,12 @@ data CaptureCodec a = CaptureCodec
 
 newtype CaptureEncoding a = CaptureEncoding { appCaptureEncoding :: a -> T.Text }
 newtype CaptureDecoding a = CaptureDecoding { appCaptureDecoding :: T.Text -> Maybe a }
+
+captureCodecToCaptureEncoding :: CaptureCodec a -> CaptureEncoding a
+captureCodecToCaptureEncoding (CaptureCodec enc _) = CaptureEncoding enc
+
+captureCodecToCaptureDecoding :: CaptureCodec a -> CaptureDecoding a
+captureCodecToCaptureDecoding (CaptureCodec _ dec) = CaptureDecoding dec
 
 -- | This does not use the request body since the request body
 --   does not appear in a URL.

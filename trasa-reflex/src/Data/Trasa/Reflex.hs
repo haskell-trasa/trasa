@@ -1,8 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wall -Werror #-}
-module Data.Trasa.Reflex (request,serve) where
+module Data.Trasa.Reflex (request,requestMany,serve) where
 
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -19,6 +21,15 @@ import Reflex.Dom
 
 import Trasa.Core
 
+import Reflex.PopState
+
+data Preped rt rp a = Preped !(Prepared rt rp) !a
+  deriving (Functor,Foldable,Traversable)
+
+newtype Preps rt rp f a = Preps
+  { getPreps :: f (Preped rt rp a) }
+  deriving (Functor,Foldable,Traversable)
+
 request :: forall t m rt rp.
   MonadWidget t m
   => (forall cs' rq' rp'. rt cs' rq' rp' -> T.Text)
@@ -26,28 +37,62 @@ request :: forall t m rt rp.
   -> (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyEncoding) rq')
   -> (forall cs' rq' rp'. rt cs' rq' rp' -> ResponseBody (Many BodyDecoding) rp')
   -> Event t (Prepared rt rp)
-  -> m (Event t (Either T.Text rp))
+  -> m (Event t (Either TrasaErr rp))
 request toMethod toCapEncs toReqBody toRespBody prepared =
+  coerceEvent <$> requestMany toMethod toCapEncs toReqBody toRespBody preparedId
+  where preparedId = coerceEvent prepared :: Event t (Identity (Prepared rt rp))
+
+requestMany :: forall t m f rt rp.
+  (MonadWidget t m, Traversable f)
+  => (forall cs' rq' rp'. rt cs' rq' rp' -> T.Text)
+  -> (forall cs' rq' rp'. rt cs' rq' rp' -> Path CaptureEncoding cs')
+  -> (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyEncoding) rq')
+  -> (forall cs' rq' rp'. rt cs' rq' rp' -> ResponseBody (Many BodyDecoding) rp')
+  -> Event t (f (Prepared rt rp))
+  -> m (Event t (f (Either TrasaErr rp)))
+requestMany toMethod toCapEncs toReqBody toRespBody prepared =
   fmap parseXhrResponse <$> performRequestsAsync (buildXhrRequest <$> prepared)
-  where parseXhrResponse :: (Prepared rt rp, XhrResponse) -> Either T.Text rp
-        parseXhrResponse (Prepared route _ _, res) = case M.lookup "Content-Type" (_xhrResponse_headers res) of
-          Just content -> case _xhrResponse_responseText res of
-            Just txt -> let bs = LBS.fromStrict (TE.encodeUtf8 txt) in
-              case decodeResponseBody (toRespBody route) (Content content bs) of
-                Just a -> Right a
-                Nothing -> Left "Could not decode body"
-            Nothing -> Left "No body returned from server"
-          Nothing -> Left "No content type from server"
-        buildXhrRequest :: Prepared rt rp -> (Prepared rt rp, XhrRequest BS.ByteString)
-        buildXhrRequest p@(Prepared route _ _) =
-          (p, XhrRequest (toMethod route) (url p) conf)
-          where url :: Prepared rt rp -> T.Text
-                -- This use of decodeUtf8 is safe because http-types.encodePathSegments
-                -- has a postconditon that the builder is utf8 encoded
-                url = TE.decodeUtf8 . LBS.toStrict . B.toLazyByteString . encodePathSegments . linkWith toCapEncs
-                conf :: XhrRequestConfig BS.ByteString
-                conf = def & xhrRequestConfig_sendData .~ maybe "" (LBS.toStrict . contentData) content
-                           & xhrRequestConfig_headers .~ headers
-                headers = maybe acceptHeader (\ct -> M.insert "Content-Type" (contentType ct) acceptHeader) content
-                acceptHeader = "Accept" =: T.intercalate ", " (toList accepts)
-                Payload _ content accepts = payloadWith toCapEncs toReqBody toRespBody p
+  where parseXhrResponse :: Preps rt rp f XhrResponse -> f (Either TrasaErr rp)
+        parseXhrResponse = undefined
+        -- parseXhrResponse (Prepared route _ _, res) = case M.lookup "Content-Type" (_xhrResponse_headers res) of
+        --   Just content -> case _xhrResponse_responseText res of
+        --     Just txt -> let bs = LBS.fromStrict (TE.encodeUtf8 txt) in
+        --       case decodeResponseBody (toRespBody route) (Content content bs) of
+        --         Just a -> Right a
+        --         Nothing -> Left "Could not decode body"
+        --     Nothing -> Left "No body returned from server"
+        --   Nothing -> Left "No content type from server"
+        buildXhrRequest :: f (Prepared rt rp) -> Preps rt rp f (XhrRequest BS.ByteString)
+        buildXhrRequest = undefined
+        -- buildXhrRequest p@(Prepared route _ _) =
+        --   (p, XhrRequest (toMethod route) (encodeUrl (linkWith toCapEncs p)) conf)
+        --   where conf :: XhrRequestConfig BS.ByteString
+        --         conf = def & xhrRequestConfig_sendData .~ maybe "" (LBS.toStrict . contentData) content
+        --                    & xhrRequestConfig_headers .~ headers
+        --         headers = maybe acceptHeader (\ct -> M.insert "Content-Type" (contentType ct) acceptHeader) content
+        --         acceptHeader = "Accept" =: T.intercalate ", " (toList accepts)
+        --         Payload _ content accepts = payloadWith toCapEncs toReqBody toRespBody p
+
+serve :: forall t m rt.
+  MonadWidget t m
+  => (forall cs' rq' rp'. rt cs' rq' rp' -> T.Text)
+  -> (forall cs' rq' rp'. rt cs' rq' rp' -> Path CaptureCodec cs')
+  -> (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyCodec) rq')
+  -> (forall cs' rq' rp'. rt cs' rq' rp' -> ResponseBody (Many BodyCodec) rp')
+  -> [Constructed rt]
+  -> (forall cs' rq' rp'. rt cs' rq' rp' -> Rec Identity cs' -> ResponseBody Identity rp' -> m ())
+  -> (TrasaErr -> m ())
+  -> m (Event t ())
+serve toMethod toCapCodec toReqBody toRespBody enumeratedRoutes router onErr = do
+  urls <- url never
+  let choice = ffor (updated urls) $ \us ->
+        parseWith toMethod toCapDec toReqBodyDec enumeratedRoutes "GET" us Nothing
+  let (failures, prepareds) = fanEither choice
+  _reqs <- requestMany toMethod toCapEnc toReqBodyEnc toRespBodyDec (fmap buildReq prepareds)
+  updated <$> widgetHold (return ()) (leftmost [onErr <$> failures])
+  where toCapDec = mapPath captureCodecToCaptureDecoding . toCapCodec
+        toCapEnc = mapPath captureCodecToCaptureEncoding . toCapCodec
+        toReqBodyDec = mapRequestBody (mapMany bodyCodecToBodyDecoding) . toReqBody
+        toReqBodyEnc = mapRequestBody (mapMany bodyCodecToBodyEncoding) . toReqBody
+        toRespBodyDec = mapResponseBody (mapMany bodyCodecToBodyDecoding) . toRespBody
+        buildReq = Identity . undefined
