@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -42,6 +43,46 @@ request toMethod toCapEncs toReqBody toRespBody prepared =
   coerceEvent <$> requestMany toMethod toCapEncs toReqBody toRespBody preparedId
   where preparedId = coerceEvent prepared :: Event t (Identity (Prepared rt rp))
 
+-- | Not exported. Used internally so that requestManyInternal can be written
+--   and used to implement both serve and requestMany.
+data ContResp rt a = forall rp. ContResp 
+  (Prepared rt rp)
+  (ResponseBody (Many BodyDecoding) rp)
+  (rp -> a)
+  deriving (Functor,Traversable)
+
+-- data Foo rt m t a = Foo (Event (ContResp rt a) -> m (Event t (Either TrasaErr a)))
+
+requestManyInternal :: forall t m f rt.
+  (MonadWidget t m, Traversable f)
+  => (forall cs' rq' rp'. rt cs' rq' rp' -> T.Text)
+  -> (forall cs' rq' rp'. rt cs' rq' rp' -> Path CaptureEncoding cs')
+  -> (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyEncoding) rq')
+  -> Event t (f (ContResp rt a))
+  -> m (Event t (f (Either TrasaErr a)))
+requestManyInternal = error "requestManyInternal: write me"
+  -- fmap parseXhrResponse <$> performRequestsAsync (buildXhrRequest <$> prepared)
+  -- where parseXhrResponse :: Preps rt rp f XhrResponse -> f (Either TrasaErr rp)
+  --       parseXhrResponse = undefined
+  --       -- parseXhrResponse (Prepared route _ _, res) = case M.lookup "Content-Type" (_xhrResponse_headers res) of
+  --       --   Just content -> case _xhrResponse_responseText res of
+  --       --     Just txt -> let bs = LBS.fromStrict (TE.encodeUtf8 txt) in
+  --       --       case decodeResponseBody (toRespBody route) (Content content bs) of
+  --       --         Just a -> Right a
+  --       --         Nothing -> Left "Could not decode body"
+  --       --     Nothing -> Left "No body returned from server"
+  --       --   Nothing -> Left "No content type from server"
+  --       buildXhrRequest :: f (Prepared rt rp) -> Preps rt rp f (XhrRequest BS.ByteString)
+  --       buildXhrRequest = undefined
+  --       -- buildXhrRequest p@(Prepared route _ _) =
+  --       --   (p, XhrRequest (toMethod route) (encodeUrl (linkWith toCapEncs p)) conf)
+  --       --   where conf :: XhrRequestConfig BS.ByteString
+  --       --         conf = def & xhrRequestConfig_sendData .~ maybe "" (LBS.toStrict . contentData) content
+  --       --                    & xhrRequestConfig_headers .~ headers
+  --       --         headers = maybe acceptHeader (\ct -> M.insert "Content-Type" (contentType ct) acceptHeader) content
+  --       --         acceptHeader = "Accept" =: T.intercalate ", " (toList accepts)
+  --       --         Payload _ content accepts = payloadWith toCapEncs toReqBody toRespBody p
+
 requestMany :: forall t m f rt rp.
   (MonadWidget t m, Traversable f)
   => (forall cs' rq' rp'. rt cs' rq' rp' -> T.Text)
@@ -51,27 +92,8 @@ requestMany :: forall t m f rt rp.
   -> Event t (f (Prepared rt rp))
   -> m (Event t (f (Either TrasaErr rp)))
 requestMany toMethod toCapEncs toReqBody toRespBody prepared =
-  fmap parseXhrResponse <$> performRequestsAsync (buildXhrRequest <$> prepared)
-  where parseXhrResponse :: Preps rt rp f XhrResponse -> f (Either TrasaErr rp)
-        parseXhrResponse = undefined
-        -- parseXhrResponse (Prepared route _ _, res) = case M.lookup "Content-Type" (_xhrResponse_headers res) of
-        --   Just content -> case _xhrResponse_responseText res of
-        --     Just txt -> let bs = LBS.fromStrict (TE.encodeUtf8 txt) in
-        --       case decodeResponseBody (toRespBody route) (Content content bs) of
-        --         Just a -> Right a
-        --         Nothing -> Left "Could not decode body"
-        --     Nothing -> Left "No body returned from server"
-        --   Nothing -> Left "No content type from server"
-        buildXhrRequest :: f (Prepared rt rp) -> Preps rt rp f (XhrRequest BS.ByteString)
-        buildXhrRequest = undefined
-        -- buildXhrRequest p@(Prepared route _ _) =
-        --   (p, XhrRequest (toMethod route) (encodeUrl (linkWith toCapEncs p)) conf)
-        --   where conf :: XhrRequestConfig BS.ByteString
-        --         conf = def & xhrRequestConfig_sendData .~ maybe "" (LBS.toStrict . contentData) content
-        --                    & xhrRequestConfig_headers .~ headers
-        --         headers = maybe acceptHeader (\ct -> M.insert "Content-Type" (contentType ct) acceptHeader) content
-        --         acceptHeader = "Accept" =: T.intercalate ", " (toList accepts)
-        --         Payload _ content accepts = payloadWith toCapEncs toReqBody toRespBody p
+  requestManyInternal toMethod toCapEncs toReqBody 
+    (fmap (\p -> ContResp p (toRespBody p) id) prepared)
 
 serve :: forall t m rt.
   MonadWidget t m
