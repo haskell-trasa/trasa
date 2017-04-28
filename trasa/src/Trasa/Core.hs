@@ -83,6 +83,9 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Vinyl (Rec(..))
 
+-- $setup
+-- >>> :set -XTypeInType
+
 data Bodiedness = Body Type | Bodyless
 
 data RequestBody :: (Type -> Type) -> Bodiedness -> Type where
@@ -332,6 +335,15 @@ parseOne = go
       vs <- go psNext xsNext
       Just (Identity v :& vs)
 
+-- | A closed, total type family provided as a convenience to end users.
+--   Other function is this library take advantage of 'Arguments' to allow
+--   end users use normal function application. Without this, users would 
+--   need to write out 'Record' and 'RequestBody' values by hand, which
+--   is tedious.
+--
+--   >>> :kind! Arguments '[Int,Bool] 'Bodyless Double
+--   Arguments '[Int,Bool] 'Bodyless Double :: *
+--   = Int -> Bool -> Double
 type family Arguments (pieces :: [Type]) (body :: Bodiedness) (result :: Type) :: Type where
   Arguments '[] ('Body b) r = b -> r
   Arguments '[] 'Bodyless r = r
@@ -375,12 +387,18 @@ handler = go
   go RNil RequestBodyAbsent f = f
   go RNil (RequestBodyPresent (Identity b)) f = f b
 
-
+-- | A route with all types hidden: the captures, the request body,
+--   and the response body. This is needed so that users can
+--   enumerate over all the routes.
 data Constructed :: ([Type] -> Bodiedness -> Type -> Type) -> Type where
   Constructed :: forall rt cps rq rp. rt cps rq rp -> Constructed rt
+-- I dont really like the name Constructed, but I don't want to call it
+-- Some or Any since these get used a lot and a conflict would be likely.
+-- Think, think, think.
 
 -- | Only includes the path. Once querystring params get added
---   to this library, this data type should not have them.
+--   to this library, this data type should not have them. This
+--   type is only used internally and should not be exported.
 data Pathed :: ([Type] -> Bodiedness -> Type -> Type) -> Type  where
   Pathed :: forall rt cps rq rp. rt cps rq rp -> Rec Identity cps -> Pathed rt
 
@@ -403,9 +421,11 @@ data Concealed :: ([Type] -> Bodiedness -> Type -> Type) -> Type where
     -> RequestBody Identity rq
     -> Concealed rt
 
+-- | Conceal the response type.
 conceal :: Prepared rt rp -> Concealed rt
 conceal (Prepared a b c) = Concealed a b c
 
+-- | The HTTP content type and body.
 data Content = Content
   { contentType :: T.Text
   , contentData :: LBS.ByteString

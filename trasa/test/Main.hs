@@ -23,7 +23,10 @@ import Test.DocTest (doctest)
 main :: IO ()
 main = do
   putStrLn "\nRUNNING DOCTESTS"
-  doctest ["src/Trasa/Tutorial.hs"]
+  doctest 
+    [ "src/Trasa/Core.hs"
+    , "src/Trasa/Tutorial.hs"
+    ]
   putStrLn "\nRUNNING OTHER TESTS"
   defaultMain tests
 
