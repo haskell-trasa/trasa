@@ -45,6 +45,7 @@ module Trasa.Core
   , capture
   , end
   , (./)
+  , appendPath
   -- ** Request Body
   , body
   , bodyless
@@ -60,6 +61,8 @@ module Trasa.Core
   , bodyCodecToBodyDecoding
   , captureCodecToCaptureEncoding
   , captureCodecToCaptureDecoding
+  -- * Errors
+  , status
   -- * Argument Currying
   , Arguments
   -- * Random Stuff
@@ -85,7 +88,9 @@ import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Lazy.Char8 as LBC
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import qualified Network.HTTP.Types.Status as N
 import Data.Vinyl (Rec(..))
+import Data.Vinyl.TypeLevel (type (++))
 
 -- $setup
 -- >>> :set -XTypeInType
@@ -114,6 +119,11 @@ mapPath :: (forall x. cf x -> cf' x) -> Path cf ps -> Path cf' ps
 mapPath _ PathNil = PathNil
 mapPath f (PathConsMatch s pnext) = PathConsMatch s (mapPath f pnext)
 mapPath f (PathConsCapture c pnext) = PathConsCapture (f c) (mapPath f pnext)
+
+appendPath :: Path f as -> Path f bs -> Path f (as ++ bs)
+appendPath PathNil bs = bs
+appendPath (PathConsMatch a as) bs = PathConsMatch a (appendPath as bs)
+appendPath (PathConsCapture cas as) bs = PathConsCapture cas (appendPath as bs)
 
 newtype Many f a = Many { getMany :: NonEmpty (f a) }
   deriving (Functor)
@@ -254,22 +264,12 @@ encodePieces = go
   go (PathConsCapture (CaptureEncoding enc) ps) (Identity x :& xs) = enc x : go ps xs
 
 data TrasaErr = TrasaErr
-  { trasaErrHTTPCode :: Int
-  , trasaErrPhrase :: T.Text
+  { trasaErrStatus :: N.Status
   , trasaErrBody :: LBS.ByteString
   } deriving (Show,Eq,Ord)
 
-err404 :: TrasaErr
-err404 = TrasaErr 404 "Not Found" ""
-
-err400 :: TrasaErr
-err400 = TrasaErr 400 "Bad Request" ""
-
-err406 :: TrasaErr
-err406 = TrasaErr 406 "Not Acceptable" ""
-
-err415 :: TrasaErr
-err415 = TrasaErr 415 "Unsupported Media Type" ""
+status :: N.Status -> TrasaErr
+status s = TrasaErr s ""
 
 dispatchWith :: forall rt m.
      Applicative m
@@ -289,7 +289,7 @@ dispatchWith toMethod toCapDec toReqBody toRespBody makeResponse enumeratedRoute
     toMethod toCapDec toReqBody enumeratedRoutes method encodedPath mcontent
   let response = makeResponse route decodedPathPieces decodedRequestBody
       ResponseBody (Many encodings) = toRespBody route
-  encode <- mapFindE err406
+  encode <- mapFindE (status N.status406)
     (\(BodyEncoding names encode) ->
        if any (flip elem accepts) names then Just encode else Nothing)
     encodings
@@ -307,7 +307,7 @@ parseWith :: forall rt.
   -> Maybe Content -- ^ Request content type and body
   -> Either TrasaErr (Concealed rt)
 parseWith toMethod toCapDec toReqBody enumeratedRoutes method encodedPath mcontent = do
-  Pathed route captures <- mapFindE err404
+  Pathed route captures <- mapFindE (status N.status404)
     (\(Constructed route) -> do
       guard (toMethod route == method)
       fmap (Pathed route) (parseOne (toCapDec route) encodedPath)
@@ -315,16 +315,16 @@ parseWith toMethod toCapDec toReqBody enumeratedRoutes method encodedPath mconte
   decodedRequestBody <- case toReqBody route of
     RequestBodyPresent (Many decodings) -> case mcontent of
       Just (Content typ encodedRequest) -> do
-        decode <- mapFindE err415 (\(BodyDecoding names decode) -> if elem typ names then Just decode else Nothing) decodings
+        decode <- mapFindE (status N.status415) (\(BodyDecoding names decode) -> if elem typ names then Just decode else Nothing) decodings
         reqVal <- badReq (decode encodedRequest)
         Right (RequestBodyPresent (Identity reqVal))
-      Nothing -> Left err415
+      Nothing -> Left (status N.status415)
     RequestBodyAbsent -> case mcontent of
-      Just _ -> Left err415
+      Just _ -> Left (status N.status415)
       Nothing -> Right RequestBodyAbsent
   return (Concealed route captures decodedRequestBody)
   where badReq :: Either T.Text b -> Either TrasaErr b
-        badReq = first (\t -> err400 { trasaErrBody = LBS.fromStrict (T.encodeUtf8 t) })
+        badReq = first (TrasaErr N.status400 . LBS.fromStrict . T.encodeUtf8)
 
 parseOne ::
      Path CaptureDecoding cps
