@@ -4,7 +4,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wall -Werror #-}
-module Data.Trasa.Reflex (request,requestMany,serve) where
+module Trasa.Reflex (request,requestMany,serve) where
 
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE

@@ -13,7 +13,8 @@ extra-source-files:  ChangeLog.md
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Data.Trasa.Reflex
+  exposed-modules:     Reflex.PopState
+                     , Trasa.Reflex
   build-depends:       base >=4.9 && <4.10
                      , bytestring == 0.10.*
                      , text == 1.2.*
