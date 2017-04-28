@@ -10,7 +10,7 @@ let bootstrap = import <nixpkgs> {};
     compiler = if frontend then "ghcjs" else "ghc";
     overrides = (builtins.getAttr compiler reflex-platform).override {
       overrides = self: super:
-        with reflex-platform; with self;
+        with reflex-platform;
         let options = pkg: lib.overrideCabal pkg (drv: { doCheck = test; });
             filterPredicate = p: type:
               let path = baseNameOf p; in
@@ -18,7 +18,6 @@ let bootstrap = import <nixpkgs> {};
               [(type == "directory" && path == "dist")
                (type == "symlink"   && path == "result")
                (type == "directory" && path == ".git")];
-            build = path: options (callPackage (cabal2nixResult (builtins.filterSource filterPredicate path)) {});
         in {
           mkDerivation = args: super.mkDerivation (args //
             (if nixpkgs.stdenv.isDarwin && !frontend then {
@@ -39,17 +38,7 @@ let bootstrap = import <nixpkgs> {};
                 ghc-pkg --package-db="$packageConfDir" recache
               '';
             } else {}));
-          # Deps
-          vinyl = lib.dontCheck super.vinyl;
-          # Core Libraries
-          trasa = build ../trasa;
-          trasa-server = build ../trasa-server;
-          trasa-reflex = build ../trasa-reflex;
-          # Example
-          common = build ../example/common;
-          frontend = build ../example/frontend;
-          backend = build ../example/backend;
-        };
+        } // import ./overrides.nix { inherit options filterPredicate lib cabal2nixResult self super; };
     };
     drv = builtins.getAttr package overrides;
 in if reflex-platform.nixpkgs.lib.inNixShell then
