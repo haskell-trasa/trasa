@@ -87,12 +87,14 @@ serve toMethod toCapCodec toReqBody toRespBody enumeratedRoutes router onErr = d
   urls <- url never
   let choice = ffor (updated urls) $ \us ->
         parseWith toMethod toCapDec toReqBodyDec enumeratedRoutes "GET" us Nothing
-  let (failures, prepareds) = fanEither choice
-  _reqs <- requestMany toMethod toCapEnc toReqBodyEnc toRespBodyDec (fmap buildReq prepareds)
-  updated <$> widgetHold (return ()) (leftmost [onErr <$> failures])
+  let (failures, concealeds) = fanEither choice
+  actions <- fmap test <$> request toMethod toCapEnc toReqBodyEnc toRespBodyDec
+    (ffor concealeds (\(Concealed route caps reqBody) -> Prepared route caps reqBody))
+  updated <$> widgetHold (return ()) (leftmost [onErr <$> failures,actions])
   where toCapDec = mapPath captureCodecToCaptureDecoding . toCapCodec
         toCapEnc = mapPath captureCodecToCaptureEncoding . toCapCodec
         toReqBodyDec = mapRequestBody (mapMany bodyCodecToBodyDecoding) . toReqBody
         toReqBodyEnc = mapRequestBody (mapMany bodyCodecToBodyEncoding) . toReqBody
         toRespBodyDec = mapResponseBody (mapMany bodyCodecToBodyDecoding) . toRespBody
-        buildReq = Identity . undefined
+        test :: forall rp. Either TrasaErr rp -> m ()
+        test = undefined
