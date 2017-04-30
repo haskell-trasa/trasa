@@ -16,7 +16,7 @@ module Trasa.Server
 
 import Trasa.Core
 import Network.HTTP.Types.Header (hAccept,hContentType)
-import Network.HTTP.Types.Status (status400,status200,mkStatus)
+import Network.HTTP.Types.Status (status400,status200)
 import Data.Functor.Identity
 import Data.Vinyl.Core (Rec)
 import qualified Network.Wai as WAI
@@ -24,7 +24,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.List as L
 
-serve :: 
+serve ::
      (forall cs' rq' rp'. rt cs' rq' rp' -> T.Text) -- ^ Method
   -> (forall cs' rq' rp'. rt cs' rq' rp' -> Path CaptureDecoding cs')
   -> (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyDecoding) rq')
@@ -60,11 +60,9 @@ serve toMethod toCapDec toReqBody toRespBody makeResponse enumeratedRoutes =
                 return (Just (Content typ reqBod))
             e <- handle method accepts path mcontent
             case e of
-              Left (TrasaErr errCode phrase errBody) -> do
-                let status = mkStatus errCode (TE.encodeUtf8 phrase)
-                respond (WAI.responseLBS status [] errBody)
+              Left (TrasaErr stat errBody) -> respond (WAI.responseLBS stat [] errBody)
               Right lbs -> respond (WAI.responseLBS status200 [] lbs)
-  
+
 eitherToMaybe :: Either e a -> Maybe a
 eitherToMaybe (Left _) = Nothing
 eitherToMaybe (Right a) = Just a
@@ -75,4 +73,3 @@ eitherToMaybe (Right a) = Just a
 --   if T.null b
 --     then Nothing
 --     else Just (a, T.tail b)
-
