@@ -83,6 +83,8 @@ allRoutes =
   , Constructed AdditionR
   , Constructed IdentityR
   , Constructed LeftPadR
+  , Constructed TrickyOneR
+  , Constructed TrickyTwoR
   ]
 
 router :: Router Route

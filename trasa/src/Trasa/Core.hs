@@ -538,6 +538,11 @@ data IxedPath :: (Type -> Type) -> Nat -> [Type] -> Type where
   IxedPathCapture :: f a -> IxedPath f n as -> IxedPath f ('S n) (a ': as)
   IxedPathMatch :: T.Text -> IxedPath f n a -> IxedPath f n a
 
+data LenPath :: Nat -> Type where
+  LenPathNil :: LenPath 'Z
+  LenPathCapture :: LenPath n -> LenPath ('S n)
+  LenPathMatch :: T.Text -> LenPath n -> LenPath n
+
 -- Assumes length is in penultimate position.
 data HideIx :: (Nat -> k -> Type) -> k -> Type where
   HideIx :: f n a -> HideIx f a
@@ -569,26 +574,54 @@ ixedPathToIxedRec (IxedPathCapture c pnext) =
 ixedPathToIxedRec (IxedPathMatch _ pnext) =
   ixedPathToIxedRec pnext
 
+ixedPathToLenPath :: IxedPath f n xs -> LenPath n
+ixedPathToLenPath IxedPathNil = LenPathNil
+ixedPathToLenPath (IxedPathCapture _ pnext) =
+  LenPathCapture (ixedPathToLenPath pnext)
+ixedPathToLenPath (IxedPathMatch s pnext) =
+  LenPathMatch s (ixedPathToLenPath pnext)
+
+snocLenPathMatch :: T.Text -> LenPath n -> LenPath n
+snocLenPathMatch s x = case x of
+  LenPathNil -> LenPathMatch s LenPathNil
+  LenPathMatch t pnext -> LenPathMatch t (snocLenPathMatch s pnext)
+  LenPathCapture pnext -> LenPathCapture (snocLenPathMatch s pnext)
+
+snocLenPathCapture :: LenPath n -> LenPath ('S n)
+snocLenPathCapture x = case x of
+  LenPathNil -> LenPathCapture LenPathNil
+  LenPathMatch t pnext -> LenPathMatch t (snocLenPathCapture pnext)
+  LenPathCapture pnext -> LenPathCapture (snocLenPathCapture pnext)
+
+reverseLenPathMatch :: LenPath n -> LenPath n
+reverseLenPathMatch = go
+  where
+  go :: forall n. LenPath n -> LenPath n
+  go LenPathNil = LenPathNil
+  go (LenPathMatch s pnext) = snocLenPathMatch s (go pnext)
+  go (LenPathCapture pnext) = snocLenPathCapture (go pnext)
+
 singletonIxedRouter :: 
      rt cs rq rp -> Path CaptureDecoding cs -> IxedRouter rt 'Z
 singletonIxedRouter route capDecs = case pathToIxedPath capDecs of
   HideIx ixedCapDecs ->
     let ixedCapDecsRec = ixedPathToIxedRec ixedCapDecs
         responder = IxedResponder route ixedCapDecsRec 
-     in singletonIxedRouterHelper responder ixedCapDecs
+        lenPath = reverseLenPathMatch (ixedPathToLenPath ixedCapDecs)
+     in singletonIxedRouterHelper responder lenPath
 
 singletonIxedRouterHelper :: 
-  IxedResponder rt n -> IxedPath f n xs -> IxedRouter rt 'Z
+  IxedResponder rt n -> LenPath n -> IxedRouter rt 'Z
 singletonIxedRouterHelper responder path = 
   let r = IxedRouter HM.empty Nothing [responder]
    in singletonIxedRouterGo r path
 
 singletonIxedRouterGo ::
-  IxedRouter rt n -> IxedPath f n xs -> IxedRouter rt 'Z
-singletonIxedRouterGo r ixp = case ixp of
-  IxedPathNil -> r
-  IxedPathCapture _ ixpNext -> singletonIxedRouterGo (IxedRouter HM.empty (Just r) []) ixpNext
-  IxedPathMatch s ixpNext -> singletonIxedRouterGo (IxedRouter (HM.singleton s r) Nothing []) ixpNext
+  IxedRouter rt n -> LenPath n -> IxedRouter rt 'Z
+singletonIxedRouterGo r lp = case lp of
+  LenPathNil -> r
+  LenPathCapture lpNext -> singletonIxedRouterGo (IxedRouter HM.empty (Just r) []) lpNext
+  LenPathMatch s lpNext -> singletonIxedRouterGo (IxedRouter (HM.singleton s r) Nothing []) lpNext
 
 unionIxedRouter :: IxedRouter rt n -> IxedRouter rt n -> IxedRouter rt n
 unionIxedRouter = go
