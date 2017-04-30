@@ -35,9 +35,11 @@ module Trasa.Core
   , prepareWith
   , dispatchWith
   , parseWith
+  , parseFastWith
   , linkWith
   , payloadWith
   , requestWith
+  , routerWith
   , handler
   -- * Defining Routes
   -- ** Path
@@ -89,6 +91,8 @@ import qualified Data.ByteString.Lazy.Char8 as LBC
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Network.HTTP.Types.Status as N
+import qualified Data.HashMap.Strict as HM
+import Data.HashMap.Strict (HashMap)
 import Data.Vinyl (Rec(..))
 import Data.Vinyl.TypeLevel (type (++))
 
@@ -295,6 +299,14 @@ dispatchWith toMethod toCapDec toReqBody toRespBody makeResponse enumeratedRoute
     encodings
   Right (fmap encode response)
 
+routerWith :: 
+     (forall cs' rq' rp'. rt cs' rq' rp' -> Path CaptureDecoding cs')
+  -> [Constructed rt]
+  -> Router rt
+routerWith toCapDec enumeratedRoutes = Router $ foldMap 
+  (\(Constructed route) -> singletonIxedRouter route (toCapDec route))
+  enumeratedRoutes
+
 -- | This function is exported largely for illustrative purposes.
 --   In actual applications, 'dispatchWith' would be used more often.
 parseWith :: forall rt.
@@ -347,6 +359,40 @@ parseOne = go
       v <- decode x
       vs <- go psNext xsNext
       Just (Identity v :& vs)
+
+parseFastWith :: forall rt. Router rt -> [T.Text] -> Maybe (Pathed rt)
+parseFastWith (Router r0) pieces0 = 
+  listToMaybe (go VecNil pieces0 r0)
+  where
+  go :: forall n.
+        Vec n T.Text -- captures being accumulated
+     -> [T.Text] -- remaining pieces
+     -> IxedRouter rt n -- router fragment
+     -> [Pathed rt]
+  go captures ps (IxedRouter matches mcapture responders) = case ps of
+    [] -> mapMaybe (\(IxedResponder rt capDecs) -> 
+        fmap (\x -> (Pathed rt x)) (decodeCaptureVector capDecs captures)
+      ) responders
+    p : psNext -> 
+      let res1 = maybe [] id $ fmap (go captures psNext) (HM.lookup p matches)
+          -- Since this uses snocVec to build up the captures,
+          -- this algorithm's complexity includes a term that is
+          -- O(n^2) in the number of captures. However, most routes
+          -- that I deal with have one or two captures. Occassionally,
+          -- I'll get one with four or five, but this happens
+          -- so infrequently that I'm not concerned about this.
+          res2 = maybe [] id $ fmap (go (snocVec p captures) psNext) mcapture
+       in res1 ++ res2
+
+decodeCaptureVector :: 
+     IxedRec CaptureDecoding n xs 
+  -> Vec n T.Text
+  -> Maybe (Rec Identity xs)
+decodeCaptureVector IxedRecNil VecNil = Just RNil
+decodeCaptureVector (IxedRecCons (CaptureDecoding decode) rnext) (VecCons piece vnext) = do
+  val <- decode piece
+  vals <- decodeCaptureVector rnext vnext
+  return (Identity val :& vals)
 
 -- | A closed, total type family provided as a convenience to end users.
 --   Other function is this library take advantage of 'Arguments' to allow
@@ -460,4 +506,105 @@ showReadBodyCodec = BodyCodec
 
 showReadCaptureCodec :: (Show a, Read a) => CaptureCodec a
 showReadCaptureCodec = CaptureCodec (T.pack . show) (readMaybe . T.unpack)
+
+-- | Only promoted version used.
+data Nat = S !Nat | Z
+
+newtype Router rt = Router (IxedRouter rt 'Z)
+
+data IxedRouter :: ([Type] -> Bodiedness -> Type -> Type) -> Nat -> Type where
+  IxedRouter :: 
+       HashMap T.Text (IxedRouter rt n) 
+    -> Maybe (IxedRouter rt ('S n))
+    -> [IxedResponder rt n] -- Should be either zero or one, more than one means that there are trivially overlapped routes
+    -> IxedRouter rt n
+
+-- | This monoid instance is provided so that we can
+--   conveniently use foldMap elsewhere. We do not
+--   provide a Monoid instance for Router like we do 
+--   for IxedRouter. End users only have one way to create
+--   a router, and if they combine a Router with itself
+--   using mappend, it would result in Router in which all
+--   routes were overlapped.
+instance Monoid (IxedRouter rt n) where
+  mempty = IxedRouter HM.empty Nothing []
+  mappend = unionRouter
+  
+data IxedResponder :: ([Type] -> Bodiedness -> Type -> Type) -> Nat -> Type where
+  IxedResponder :: forall rt cs rq rp n.
+       rt cs rq rp
+    -> IxedRec CaptureDecoding n cs
+    -> IxedResponder rt n
+
+data IxedRec :: (k -> Type) -> Nat -> [k] -> Type where
+  IxedRecNil :: IxedRec f 'Z '[]
+  IxedRecCons :: !(f r) -> IxedRec f n rs -> IxedRec f ('S n) (r ': rs)
+
+data Vec :: Nat -> Type -> Type where
+  VecNil :: Vec 'Z a
+  VecCons :: !a -> Vec n a -> Vec ('S n) a
+
+data IxedPath :: (Type -> Type) -> Nat -> [Type] -> Type where
+  IxedPathNil :: IxedPath f 'Z a
+  IxedPathCapture :: f a -> IxedPath f n as -> IxedPath f ('S n) (a ': as)
+  IxedPathMatch :: T.Text -> IxedPath f n a -> IxedPath f n a
+
+-- Assumes length is in penultimate position.
+data HideIx :: (Nat -> k -> Type) -> k -> Type where
+  HideIx :: f n a -> HideIx f a
+
+-- toIxedRec :: Rec f xs -> HideIx (IxedRec f) xs
+-- toIxedRec RNil = HideIx IxedRecNil
+-- toIxedRec (r :& rs) = case toIxedRec rs of
+--   HideIx x -> HideIx (IxedRecCons r x)
+
+snocVec :: a -> Vec n a -> Vec ('S n) a
+snocVec a VecNil = VecCons a VecNil
+snocVec a (VecCons b vnext) = 
+  VecCons b (snocVec a vnext)
+
+pathToIxedPath :: Path f xs -> HideIx (IxedPath f) xs
+pathToIxedPath = error "write me"
+
+-- | Discards the static parts
+ixedPathToIxedRec :: IxedPath f n xs -> IxedRec f n xs
+ixedPathToIxedRec = error "write me"
+
+singletonIxedRouter :: 
+     rt cs rq rp -> Path CaptureDecoding cs -> IxedRouter rt 'Z
+singletonIxedRouter route capDecs = case pathToIxedPath capDecs of
+  HideIx ixedCapDecs ->
+    let ixedCapDecsRec = ixedPathToIxedRec ixedCapDecs
+        responder = IxedResponder route ixedCapDecsRec 
+     in singletonIxedRouterHelper responder ixedCapDecs
+
+singletonIxedRouterHelper :: 
+  IxedResponder rt n -> IxedPath f n xs -> IxedRouter rt 'Z
+singletonIxedRouterHelper responder path = 
+  let r = IxedRouter HM.empty Nothing [responder]
+   in singletonIxedRouterGo r path
+
+singletonIxedRouterGo ::
+  IxedRouter rt n -> IxedPath f n xs -> IxedRouter rt 'Z
+singletonIxedRouterGo r ixp = case ixp of
+  IxedPathNil -> r
+  IxedPathCapture _ ixpNext -> singletonIxedRouterGo (IxedRouter HM.empty (Just r) []) ixpNext
+  IxedPathMatch s ixpNext -> singletonIxedRouterGo (IxedRouter (HM.singleton s r) Nothing []) ixpNext
+
+unionRouter :: IxedRouter rt n -> IxedRouter rt n -> IxedRouter rt n
+unionRouter = go
+  where
+  go :: forall rt n. IxedRouter rt n -> IxedRouter rt n -> IxedRouter rt n
+  go (IxedRouter matchesA captureA respsA) (IxedRouter matchesB captureB respsB) =
+    IxedRouter
+      (HM.unionWith go matchesA matchesB)
+      (unionMaybeWith go captureA captureB)
+      (respsA ++ respsB)
+
+unionMaybeWith :: (a -> a -> a) -> Maybe a -> Maybe a -> Maybe a
+unionMaybeWith f x y = case x of
+  Nothing -> y
+  Just xval -> case y of
+    Nothing -> x
+    Just yval -> Just (f xval yval)
 
