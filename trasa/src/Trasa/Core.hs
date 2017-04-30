@@ -58,6 +58,7 @@ module Trasa.Core
   , mapMany
   , mapRequestBody
   , mapResponseBody
+  , mapConstructed
   -- * Converting Codecs
   , bodyCodecToBodyEncoding
   , bodyCodecToBodyDecoding
@@ -454,6 +455,13 @@ data Constructed :: ([Type] -> Bodiedness -> Type -> Type) -> Type where
 -- I dont really like the name Constructed, but I don't want to call it
 -- Some or Any since these get used a lot and a conflict would be likely.
 -- Think, think, think.
+
+mapConstructed ::
+     (forall captures request response.
+      sub captures request response -> route captures request response)
+  -> Constructed sub
+  -> Constructed route
+mapConstructed f (Constructed sub) = Constructed (f sub)
 
 -- | Only includes the path. Once querystring params get added
 --   to this library, this data type should not have them. This
