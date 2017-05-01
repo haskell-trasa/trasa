@@ -59,7 +59,7 @@ serve toReqBody toRespBody makeResponse router =
             e <- handle method accepts path mcontent
             case e of
               Left (TrasaErr stat errBody) -> respond (WAI.responseLBS stat [] errBody)
-              Right lbs -> respond (WAI.responseLBS status200 [] lbs)
+              Right (Content typ lbs) -> respond (WAI.responseLBS status200 [(hContentType,TE.encodeUtf8 typ)] lbs)
 
 eitherToMaybe :: Either e a -> Maybe a
 eitherToMaybe (Left _) = Nothing
