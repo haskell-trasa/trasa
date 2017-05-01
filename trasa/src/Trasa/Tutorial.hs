@@ -29,7 +29,7 @@ import Data.Text (Text)
 -- >>> :{
 -- data Counter = Red | Green | Blue
 --   deriving (Show,Read)
--- data Route :: [Type] -> Bodiedness -> Type -> Type where
+-- data Route :: [Type] -> Bodiedness Type -> Type -> Type where
 --   AssignR :: Route '[Counter,Int] 'Bodyless ()
 --   IncrementR :: Route '[Counter] 'Bodyless Int
 --   QueryR :: Route '[Counter] 'Bodyless Int
