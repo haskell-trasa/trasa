@@ -80,9 +80,8 @@ module Trasa.Core
 
 import Data.Kind (Type)
 import Data.Functor.Identity (Identity(..))
-import Data.Maybe (mapMaybe,listToMaybe)
+import Data.Maybe (mapMaybe,listToMaybe,isJust)
 import Data.List.NonEmpty (NonEmpty)
-import Control.Monad
 import qualified Data.List as L
 import qualified Data.List.NonEmpty as NE
 import Data.Foldable (toList)
@@ -305,9 +304,8 @@ routerWith ::
   -> (forall cs' rq' rp'. rt cs' rq' rp' -> Path CaptureDecoding cs')
   -> [Constructed rt]
   -> Router rt
-routerWith toMethod toCapDec enumeratedRoutes = foldr 
-  (\(Constructed route) r -> unionRouter r (Router (HM.singleton (toMethod route) (singletonIxedRouter route (toCapDec route)))))
-  (Router HM.empty)
+routerWith toMethod toCapDec enumeratedRoutes = Router $ foldMap
+  (\(Constructed route) -> singletonIxedRouter route (toMethod route) (toCapDec route))
   enumeratedRoutes
 
 -- | Parses the path, the querystring (once this gets added), and
@@ -342,8 +340,7 @@ parsePathWith :: forall rt.
   -> T.Text -- ^ Method
   -> [T.Text] -- ^ Path Pieces
   -> Maybe (Pathed rt)
-parsePathWith (Router hm0) method pieces0 = do
-  r0 <- HM.lookup method hm0
+parsePathWith (Router r0) method pieces0 = do
   listToMaybe (go VecNil pieces0 r0)
   where
   go :: forall n.
@@ -352,9 +349,12 @@ parsePathWith (Router hm0) method pieces0 = do
      -> IxedRouter rt n -- router fragment
      -> [Pathed rt]
   go captures ps (IxedRouter matches mcapture responders) = case ps of
-    [] -> mapMaybe (\(IxedResponder rt capDecs) -> 
-        fmap (\x -> (Pathed rt x)) (decodeCaptureVector capDecs captures)
-      ) responders
+    [] -> case HM.lookup method responders of
+      Nothing -> []
+      Just respondersAtMethod -> 
+        mapMaybe (\(IxedResponder rt capDecs) -> 
+          fmap (\x -> (Pathed rt x)) (decodeCaptureVector capDecs captures)
+        ) respondersAtMethod
     p : psNext -> 
       let res1 = maybe [] id $ fmap (go captures psNext) (HM.lookup p matches)
           -- Since this uses snocVec to build up the captures,
@@ -499,13 +499,13 @@ showReadCaptureCodec = CaptureCodec (T.pack . show) (readMaybe . T.unpack)
 -- | Only promoted version used.
 data Nat = S !Nat | Z
 
-newtype Router rt = Router (HashMap T.Text (IxedRouter rt 'Z))
+newtype Router rt = Router (IxedRouter rt 'Z)
 
 data IxedRouter :: ([Type] -> Bodiedness -> Type -> Type) -> Nat -> Type where
   IxedRouter :: 
        HashMap T.Text (IxedRouter rt n) 
     -> Maybe (IxedRouter rt ('S n))
-    -> [IxedResponder rt n] -- Should be either zero or one, more than one means that there are trivially overlapped routes
+    -> HashMap T.Text [IxedResponder rt n] -- Should be either zero or one, more than one means that there are trivially overlapped routes
     -> IxedRouter rt n
 
 -- | This monoid instance is provided so that we can
@@ -516,7 +516,7 @@ data IxedRouter :: ([Type] -> Bodiedness -> Type -> Type) -> Nat -> Type where
 --   using mappend, it would result in Router in which all
 --   routes were overlapped.
 instance Monoid (IxedRouter rt n) where
-  mempty = IxedRouter HM.empty Nothing []
+  mempty = IxedRouter HM.empty Nothing HM.empty
   mappend = unionIxedRouter
   
 data IxedResponder :: ([Type] -> Bodiedness -> Type -> Type) -> Nat -> Type where
@@ -602,26 +602,26 @@ reverseLenPathMatch = go
   go (LenPathCapture pnext) = snocLenPathCapture (go pnext)
 
 singletonIxedRouter :: 
-     rt cs rq rp -> Path CaptureDecoding cs -> IxedRouter rt 'Z
-singletonIxedRouter route capDecs = case pathToIxedPath capDecs of
+  rt cs rq rp -> T.Text -> Path CaptureDecoding cs -> IxedRouter rt 'Z
+singletonIxedRouter route method capDecs = case pathToIxedPath capDecs of
   HideIx ixedCapDecs ->
     let ixedCapDecsRec = ixedPathToIxedRec ixedCapDecs
         responder = IxedResponder route ixedCapDecsRec 
         lenPath = reverseLenPathMatch (ixedPathToLenPath ixedCapDecs)
-     in singletonIxedRouterHelper responder lenPath
+     in singletonIxedRouterHelper responder method lenPath
 
 singletonIxedRouterHelper :: 
-  IxedResponder rt n -> LenPath n -> IxedRouter rt 'Z
-singletonIxedRouterHelper responder path = 
-  let r = IxedRouter HM.empty Nothing [responder]
+  IxedResponder rt n -> T.Text -> LenPath n -> IxedRouter rt 'Z
+singletonIxedRouterHelper responder method path = 
+  let r = IxedRouter HM.empty Nothing (HM.singleton method [responder])
    in singletonIxedRouterGo r path
 
 singletonIxedRouterGo ::
   IxedRouter rt n -> LenPath n -> IxedRouter rt 'Z
 singletonIxedRouterGo r lp = case lp of
   LenPathNil -> r
-  LenPathCapture lpNext -> singletonIxedRouterGo (IxedRouter HM.empty (Just r) []) lpNext
-  LenPathMatch s lpNext -> singletonIxedRouterGo (IxedRouter (HM.singleton s r) Nothing []) lpNext
+  LenPathCapture lpNext -> singletonIxedRouterGo (IxedRouter HM.empty (Just r) HM.empty) lpNext
+  LenPathMatch s lpNext -> singletonIxedRouterGo (IxedRouter (HM.singleton s r) Nothing HM.empty) lpNext
 
 unionIxedRouter :: IxedRouter rt n -> IxedRouter rt n -> IxedRouter rt n
 unionIxedRouter = go
@@ -631,11 +631,7 @@ unionIxedRouter = go
     IxedRouter
       (HM.unionWith go matchesA matchesB)
       (unionMaybeWith go captureA captureB)
-      (respsA ++ respsB)
-
-unionRouter :: Router rt -> Router rt -> Router rt
-unionRouter (Router a) (Router b) = 
-  Router (HM.unionWith unionIxedRouter a b)
+      (HM.unionWith (++) respsA respsB)
 
 unionMaybeWith :: (a -> a -> a) -> Maybe a -> Maybe a -> Maybe a
 unionMaybeWith f x y = case x of
@@ -644,28 +640,35 @@ unionMaybeWith f x y = case x of
     Nothing -> x
     Just yval -> Just (f xval yval)
 
+-- | Pretty prints a router, using indentation to show nesting
+--   of routes under a common prefix. This also shows the request
+--   methods that each route accepts. If there are any trivially
+--   overlapped routes, the appends are asterisk to the method name
+--   for which the routes are overlapped.
 prettyRouter :: Router rt -> String
-prettyRouter (Router hm) = unlines $ join $ map 
-  (\(method,r) -> prettyIxedRouter 0 (T.unpack (T.toUpper method), r))
-  (HM.toList hm)
+prettyRouter (Router r) = L.unlines (prettyIxedRouter 0 (Nothing,r))
 
 prettyIxedRouter :: 
      Int -- ^ Indentation
-  -> (String, IxedRouter rt n)
+  -> (Maybe String, IxedRouter rt n)
   -> [String]
-prettyIxedRouter indent (node,IxedRouter matches cap completions) =
+prettyIxedRouter indent (mnode,IxedRouter matches cap responders) =
   let spaces = L.replicate indent ' '
-      children1 = map (first (('/' : ) . T.unpack)) (HM.toList matches)
-      children2 = maybe [] (\x -> [("/:capture",x)]) cap
+      nextIndent = if isJust mnode then indent + 2 else indent
+      children1 = map (first (Just . ('/' : ) . T.unpack)) (HM.toList matches)
+      children2 = maybe [] (\x -> [(Just "/:capture",x)]) cap
    in concat
-        [ (\x -> [x]) $ spaces 
-           ++ node
-           ++ (case compare (length completions) 1 of
-                 EQ -> " *"
-                 GT -> " **"
-                 LT -> ""
-              )
-        , prettyIxedRouter (indent + 2) =<< children1
-        , prettyIxedRouter (indent + 2) =<< children2
+        [ maybe [] (\x -> [x]) $ flip fmap mnode $ \node -> spaces 
+            ++ node
+            ++ (if length responders > 0 then " " ++ showRespondersList responders else "")
+        , prettyIxedRouter nextIndent =<< children1
+        , prettyIxedRouter nextIndent =<< children2
         ]
+
+showRespondersList :: HashMap T.Text [a] -> String
+showRespondersList = id
+  . (\x -> "[" ++ x ++ "]")
+  . L.intercalate ","
+  . map (\(method,xs) -> T.unpack method ++ (if L.length xs > 1 then "*" else ""))
+  . HM.toList
 

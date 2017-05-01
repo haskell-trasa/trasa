@@ -180,14 +180,14 @@ instance Show (Concealed Route) where
 instance Arbitrary (Rec f '[]) where
   arbitrary = pure RNil
 
-instance (Arbitrary (f r), Arbitrary (Rec f rs)) => Arbitrary (Rec f (r ': rs)) where
-  arbitrary = (:&) <$> arbitrary <*> arbitrary
+instance (Arbitrary r, Arbitrary (Rec Identity rs)) => Arbitrary (Rec Identity (r ': rs)) where
+  arbitrary = (:&) <$> (Identity <$> arbitrary) <*> arbitrary
 
 instance Arbitrary (RequestBody f 'Bodyless) where
   arbitrary = pure RequestBodyAbsent
 
 instance Arbitrary a => Arbitrary (RequestBody Identity (Body a)) where
-  arbitrary = RequestBodyPresent <$> arbitrary
+  arbitrary = RequestBodyPresent . Identity <$> arbitrary
 
 instance Eq (RequestBody f 'Bodyless) where
   RequestBodyAbsent == RequestBodyAbsent = True

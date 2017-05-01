@@ -25,15 +25,13 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.List as L
 
 serve ::
-     (forall cs' rq' rp'. rt cs' rq' rp' -> T.Text) -- ^ Method
-  -> (forall cs' rq' rp'. rt cs' rq' rp' -> Path CaptureDecoding cs')
-  -> (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyDecoding) rq')
+     (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyDecoding) rq')
   -> (forall cs' rq' rp'. rt cs' rq' rp' -> ResponseBody (Many BodyEncoding) rp')
   -> (forall cs' rq' rp'. rt cs' rq' rp' -> Rec Identity cs' -> RequestBody Identity rq' -> IO rp')
-  -> [Constructed rt] -- ^ All available routes
+  -> Router rt -- ^ Router
   -> WAI.Application -- ^ WAI Application
-serve toMethod toCapDec toReqBody toRespBody makeResponse enumeratedRoutes =
-  let handle = dispatchWith toMethod toCapDec toReqBody toRespBody makeResponse enumeratedRoutes
+serve toReqBody toRespBody makeResponse router =
+  let handle = dispatchWith toReqBody toRespBody makeResponse router
    in \req respond -> do
         let mstuff = (,,)
               <$> eitherToMaybe (TE.decodeUtf8' (WAI.requestMethod req))

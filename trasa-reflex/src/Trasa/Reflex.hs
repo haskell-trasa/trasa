@@ -25,7 +25,7 @@ import Trasa.Core
 import Reflex.PopState
 
 
--- | Not exporouteed. Used internally so that requestManyInternal can be written
+-- | Not exported. Used internally so that requestManyInternal can be written
 --   and used to implement both serve and requestMany.
 data WithResp route a = forall response. WithResp
   !(Prepared route response)
