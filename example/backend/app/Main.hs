@@ -66,13 +66,18 @@ handleViewAllR database = do
   m <- readTVar database
   return (fmap (uncurry Keyed) (M.toList m))
 
-application :: TVar (M.Map Key Person) -> Application
-application database = serve (metaMethod . meta)
+router :: Router Route
+router = routerWith 
+  (metaMethod . meta)
   (mapPath (CaptureDecoding . captureCodecDecode) . metaPath . meta)
+  allRoutes
+
+application :: TVar (M.Map Key Person) -> Application
+application database = serve 
   (mapRequestBody (Many . pure . bodyCodecToBodyDecoding) . metaRequestBody . meta)
   (mapResponseBody (Many . pure . bodyCodecToBodyEncoding) . metaResponseBody . meta)
   (routes database)
-  allRoutes
+  router
 
 main :: IO ()
 main = do

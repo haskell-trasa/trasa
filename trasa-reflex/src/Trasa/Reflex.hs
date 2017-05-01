@@ -108,7 +108,7 @@ serve :: forall t m route.
   -> (forall captures request response. route captures request response -> Path CaptureCodec captures)
   -> (forall captures request response. route captures request response -> RequestBody (Many BodyCodec) request)
   -> (forall captures request response. route captures request response -> ResponseBody (Many BodyCodec) response)
-  -> [Constructed route]
+  -> Router route
   -> (forall captures request response.
       route captures request response ->
       Rec Identity captures ->
@@ -116,21 +116,20 @@ serve :: forall t m route.
       m (Event t (Concealed route)))
   -> (TrasaErr -> m (Event t (Concealed route)))
   -> m ()
-serve toMethod toCapCodec toReqBody toRespBody enumeratedRoutes router onErr = mdo
+serve toMethod toCapCodec toReqBody toRespBody router widgetize onErr = mdo
   urls <- url $ ffor (switch (current jumpsD)) $ \(Concealed route captures reqBody) ->
     linkWith toCapEnc (Prepared route captures reqBody)
   let choice = ffor (updated urls) $ \us ->
-        parseWith toMethod toCapDec toReqBodyDec enumeratedRoutes "GET" us Nothing
+        parseWith toReqBodyDec router "GET" us Nothing
       (failures, concealeds) = fanEither choice
   actions <- requestManyInternal toMethod toCapEnc toReqBodyEnc toRespBodyDec (fromConcealed <$> concealeds)
   jumpsD <- widgetHold (return never) (leftmost [onErr <$> failures, either onErr id . runIdentity <$> actions])
   return ()
-  where toCapDec = mapPath captureCodecToCaptureDecoding . toCapCodec
-        toCapEnc = mapPath captureCodecToCaptureEncoding . toCapCodec
+  where toCapEnc = mapPath captureCodecToCaptureEncoding . toCapCodec
         toReqBodyDec = mapRequestBody (mapMany bodyCodecToBodyDecoding) . toReqBody
         toReqBodyEnc = mapRequestBody (mapMany bodyCodecToBodyEncoding) . toReqBody
         toRespBodyDec = mapResponseBody (mapMany bodyCodecToBodyDecoding) . toRespBody
         fromConcealed :: Concealed route -> Identity (WithResp route (m (Event t (Concealed route))))
         fromConcealed (Concealed route caps reqBody) =
           Identity (WithResp (Prepared route caps reqBody) (toRespBodyDec route)
-                   (router route caps . ResponseBody . Identity))
+                   (widgetize route caps . ResponseBody . Identity))

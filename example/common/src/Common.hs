@@ -35,7 +35,7 @@ data Person = Person
   , personName :: T.Text
   } deriving (Show, Read)
 
-data Route :: [Type] -> Bodiedness -> Type -> Type where
+data Route :: [Type] -> Bodiedness Type -> Type -> Type where
   AddR :: Route '[] (Body Person) Key
   EditR :: Route '[Key] (Body Person) ()
   DeleteR :: Route '[Key] Bodyless ()

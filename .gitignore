@@ -22,3 +22,6 @@ cabal.sandbox.config
 scripts/package
 scripts/package.tar.xz
 tmp_client_codes.txt
+trasa-reflex/result
+example/frontend/result
+example/common/result
