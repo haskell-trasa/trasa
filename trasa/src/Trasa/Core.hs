@@ -287,17 +287,19 @@ dispatchWith :: forall rt m.
   -> [T.Text] -- ^ Accept headers
   -> [T.Text] -- ^ Path Pieces
   -> Maybe Content -- ^ Content type and request body
-  -> m (Either TrasaErr LBS.ByteString) -- ^ Encoded response
+  -> m (Either TrasaErr Content) -- ^ Encoded response
 dispatchWith toReqBody toRespBody makeResponse router method accepts encodedPath mcontent = sequenceA $ do
   Concealed route decodedPathPieces decodedRequestBody <- parseWith
     toReqBody router method encodedPath mcontent
   let response = makeResponse route decodedPathPieces decodedRequestBody
       ResponseBody (Many encodings) = toRespBody route
-  encode <- mapFindE (status N.status406)
-    (\(BodyEncoding names encode) ->
-       if any (flip elem accepts) names then Just encode else Nothing)
+  (encode,typ) <- mapFindE (status N.status406)
+    (\(BodyEncoding names encode) -> case mapFind (\x -> if elem x accepts then Just x else Nothing) names of
+      Just name -> Just (encode,name)
+      Nothing -> Nothing
+    )
     encodings
-  Right (fmap encode response)
+  Right (fmap (Content typ . encode) response)
 
 routerWith :: 
      (forall cs' rq' rp'. rt cs' rq' rp' -> T.Text)
