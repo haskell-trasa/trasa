@@ -177,9 +177,6 @@ instance Show (Concealed Route) where
   show (Concealed r a b) = 
     T.unpack ("/" <> T.intercalate "/" (link (Prepared r a b)))
 
-instance Arbitrary a => Arbitrary (Identity a) where
-  arbitrary = Identity <$> arbitrary
-
 instance Arbitrary (Rec f '[]) where
   arbitrary = pure RNil
 
