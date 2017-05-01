@@ -3,10 +3,15 @@
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wall -Werror #-}
-module Trasa.Reflex (request,requestMany,serve) where
+module Trasa.Reflex (request,requestMany,serve,Dispatch,dispatch) where
+
+import Data.Kind (Type)
 
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -24,6 +29,15 @@ import Trasa.Core
 
 import Reflex.PopState
 
+type family Dispatch (captures :: [Type]) (response :: Type) (result :: Type) :: Type where
+  Dispatch '[] response result = response -> result
+  Dispatch (cap:caps) response result = cap -> Dispatch caps response result
+
+dispatch :: Rec Identity captures -> ResponseBody Identity response -> Dispatch captures response x -> x
+dispatch = go
+  where go :: Rec Identity caps -> ResponseBody Identity response -> Dispatch caps response x -> x
+        go RNil (ResponseBody (Identity response)) f = f response
+        go (Identity cap :& caps) responseBody f = go caps responseBody (f cap)
 
 -- | Not exported. Used internally so that requestManyInternal can be written
 --   and used to implement both serve and requestMany.
@@ -117,17 +131,22 @@ serve :: forall t m route.
   -> (TrasaErr -> m (Event t (Concealed route)))
   -> m ()
 serve toMethod toCapCodec toReqBody toRespBody router widgetize onErr = mdo
-  urls <- url $ ffor (switch (current jumpsD)) $ \(Concealed route captures reqBody) ->
+  (u0, urls) <- url $ ffor (switch (current jumpsD)) $ \(Concealed route captures reqBody) ->
     linkWith toCapEnc (Prepared route captures reqBody)
-  let choice = ffor (updated urls) $ \us ->
+  pb <- getPostBuild
+  let choice = ffor (leftmost [urls, u0 <$ pb]) $ \us ->
         parseWith toReqBodyDec router "GET" us Nothing
       (failures, concealeds) = fanEither choice
   actions <- requestManyInternal toMethod toCapEnc toReqBodyEnc toRespBodyDec (fromConcealed <$> concealeds)
   jumpsD <- widgetHold (return never) (leftmost [onErr <$> failures, either onErr id . runIdentity <$> actions])
   return ()
-  where toCapEnc = mapPath captureCodecToCaptureEncoding . toCapCodec
+  where toCapEnc :: route captures request response -> Path CaptureEncoding captures
+        toCapEnc = mapPath captureCodecToCaptureEncoding . toCapCodec
+        toReqBodyDec :: route captures request response -> RequestBody (Many BodyDecoding) request
         toReqBodyDec = mapRequestBody (mapMany bodyCodecToBodyDecoding) . toReqBody
+        toReqBodyEnc :: route captures request response -> RequestBody (Many BodyEncoding) request
         toReqBodyEnc = mapRequestBody (mapMany bodyCodecToBodyEncoding) . toReqBody
+        toRespBodyDec :: route captures request response -> ResponseBody (Many BodyDecoding) response
         toRespBodyDec = mapResponseBody (mapMany bodyCodecToBodyDecoding) . toRespBody
         fromConcealed :: Concealed route -> Identity (WithResp route (m (Event t (Concealed route))))
         fromConcealed (Concealed route caps reqBody) =
