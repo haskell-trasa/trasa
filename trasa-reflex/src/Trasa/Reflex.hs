@@ -9,7 +9,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wall -Werror #-}
-module Trasa.Reflex (request,requestMany,serve,Dispatch,dispatch) where
+module Trasa.Reflex (requestWith,requestManyWith,serve,Arguments,handler) where
 
 import Data.Kind (Type)
 
@@ -26,17 +26,17 @@ import qualified Data.Map.Strict as M
 import qualified Network.HTTP.Types.Status as N
 import Reflex.Dom
 
-import Trasa.Core
+import Trasa.Core hiding (requestWith,Arguments,handler)
 
 import Reflex.PopState
 
-type family Dispatch (captures :: [Type]) (response :: Type) (result :: Type) :: Type where
-  Dispatch '[] response result = response -> result
-  Dispatch (cap:caps) response result = cap -> Dispatch caps response result
+type family Arguments (captures :: [Type]) (response :: Type) (result :: Type) :: Type where
+  Arguments '[] response result = response -> result
+  Arguments (cap:caps) response result = cap -> Arguments caps response result
 
-dispatch :: Rec Identity captures -> ResponseBody Identity response -> Dispatch captures response x -> x
-dispatch = go
-  where go :: Rec Identity caps -> ResponseBody Identity response -> Dispatch caps response x -> x
+handler :: Rec Identity captures -> ResponseBody Identity response -> Arguments captures response x -> x
+handler = go
+  where go :: Rec Identity caps -> ResponseBody Identity response -> Arguments caps response x -> x
         go RNil (ResponseBody (Identity response)) f = f response
         go (Identity cap :& caps) responseBody f = go caps responseBody (f cap)
 
@@ -59,7 +59,7 @@ withResp ::
    -> WithResp route resp
 withResp toReqBody p@(Prepared route _ _) = WithResp p (toReqBody route) id
 
-request :: forall t m route resp.
+requestWith :: forall t m route resp.
   MonadWidget t m
   => (forall captures request response. route captures request response -> T.Text)
   -> (forall captures request response. route captures request response -> Path CaptureEncoding captures)
@@ -67,11 +67,11 @@ request :: forall t m route resp.
   -> (forall captures request response. route captures request response -> ResponseBody (Many BodyDecoding) response)
   -> Event t (Prepared route resp)
   -> m (Event t (Either TrasaErr resp))
-request toMethod toCapEncs toReqBody toRespBody prepared =
-  coerceEvent <$> requestMany toMethod toCapEncs toReqBody toRespBody preparedId
+requestWith toMethod toCapEncs toReqBody toRespBody prepared =
+  coerceEvent <$> requestManyWith toMethod toCapEncs toReqBody toRespBody preparedId
   where preparedId = coerceEvent prepared :: Event t (Identity (Prepared route resp))
 
-requestMany :: forall t m f route resp.
+requestManyWith :: forall t m f route resp.
   (MonadWidget t m, Traversable f)
   => (forall captures request response. route captures request response -> T.Text)
   -> (forall captures request response. route captures request response -> Path CaptureEncoding captures)
@@ -79,7 +79,7 @@ requestMany :: forall t m f route resp.
   -> (forall captures request response. route captures request response -> ResponseBody (Many BodyDecoding) response)
   -> Event t (f (Prepared route resp))
   -> m (Event t (f (Either TrasaErr resp)))
-requestMany toMethod toCapEncs toReqBody toRespBody prepared =
+requestManyWith toMethod toCapEncs toReqBody toRespBody prepared =
   requestManyInternal toMethod toCapEncs toReqBody toRespBody (fmap (withResp toRespBody) <$> prepared)
 
 -- TODO: Are these error codes correct
