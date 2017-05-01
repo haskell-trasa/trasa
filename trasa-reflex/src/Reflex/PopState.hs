@@ -37,7 +37,7 @@ getPopState = do
     (return . decodeUrl) locStr
 
 url :: (MonadHold t m, TriggerEvent t m, PerformEvent t m, MonadJSM (Performable m), MonadJSM m) =>
-  Event t [T.Text] -> m (Dynamic t [T.Text])
+  Event t [T.Text] -> m ([T.Text], Event t [T.Text])
 url us = do
   u0 <- liftJSM $ do
     window   <- currentWindowUnchecked
@@ -50,4 +50,4 @@ url us = do
     _ <- call f f [jsUri]
     return ()
   ps <- getPopState
-  holdDyn u0 ps
+  return (u0, ps)
