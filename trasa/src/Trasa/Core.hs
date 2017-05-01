@@ -101,9 +101,9 @@ import Data.Vinyl.TypeLevel (type (++))
 -- $setup
 -- >>> :set -XTypeInType
 
-data Bodiedness = Body Type | Bodyless
+data Bodiedness t = Body t | Bodyless
 
-data RequestBody :: (Type -> Type) -> Bodiedness -> Type where
+data RequestBody :: (Type -> Type) -> Bodiedness Type -> Type where
   RequestBodyPresent :: f a -> RequestBody f ('Body a)
   RequestBodyAbsent :: RequestBody f 'Bodyless
 
@@ -385,7 +385,7 @@ decodeCaptureVector (IxedRecCons (CaptureDecoding decode) rnext) (VecCons piece 
 --   >>> :kind! Arguments '[Int,Bool] 'Bodyless Double
 --   Arguments '[Int,Bool] 'Bodyless Double :: *
 --   = Int -> Bool -> Double
-type family Arguments (pieces :: [Type]) (body :: Bodiedness) (result :: Type) :: Type where
+type family Arguments (pieces :: [Type]) (body :: Bodiedness Type) (result :: Type) :: Type where
   Arguments '[] ('Body b) r = b -> r
   Arguments '[] 'Bodyless r = r
   Arguments (c ': cs) b r = c -> Arguments cs b r
@@ -431,7 +431,7 @@ handler = go
 -- | A route with all types hidden: the captures, the request body,
 --   and the response body. This is needed so that users can
 --   enumerate over all the routes.
-data Constructed :: ([Type] -> Bodiedness -> Type -> Type) -> Type where
+data Constructed :: ([Type] -> Bodiedness Type -> Type -> Type) -> Type where
   Constructed :: forall rt cps rq rp. rt cps rq rp -> Constructed rt
 -- I dont really like the name Constructed, but I don't want to call it
 -- Some or Any since these get used a lot and a conflict would be likely.
@@ -447,12 +447,12 @@ mapConstructed f (Constructed sub) = Constructed (f sub)
 -- | Only includes the path. Once querystring params get added
 --   to this library, this data type should not have them. This
 --   type is only used internally and should not be exported.
-data Pathed :: ([Type] -> Bodiedness -> Type -> Type) -> Type  where
+data Pathed :: ([Type] -> Bodiedness Type -> Type -> Type) -> Type  where
   Pathed :: forall rt cps rq rp. rt cps rq rp -> Rec Identity cps -> Pathed rt
 
 -- | Includes the path and the request body (and the querystring
 --   params after they get added to this library).
-data Prepared :: ([Type] -> Bodiedness -> Type -> Type) -> Type -> Type where
+data Prepared :: ([Type] -> Bodiedness Type -> Type -> Type) -> Type -> Type where
   Prepared :: forall rt ps rq rp.
        rt ps rq rp
     -> Rec Identity ps
@@ -462,7 +462,7 @@ data Prepared :: ([Type] -> Bodiedness -> Type -> Type) -> Type -> Type where
 -- | Only needed to implement 'parseWith'. Most users do not need this.
 --   If you need to create a route hierarchy to provide breadcrumbs,
 --   then you will need this.
-data Concealed :: ([Type] -> Bodiedness -> Type -> Type) -> Type where
+data Concealed :: ([Type] -> Bodiedness Type -> Type -> Type) -> Type where
   Concealed :: forall rt ps rq rp.
        rt ps rq rp
     -> Rec Identity ps
@@ -501,7 +501,7 @@ data Nat = S !Nat | Z
 
 newtype Router rt = Router (IxedRouter rt 'Z)
 
-data IxedRouter :: ([Type] -> Bodiedness -> Type -> Type) -> Nat -> Type where
+data IxedRouter :: ([Type] -> Bodiedness Type -> Type -> Type) -> Nat -> Type where
   IxedRouter :: 
        HashMap T.Text (IxedRouter rt n) 
     -> Maybe (IxedRouter rt ('S n))
@@ -519,7 +519,7 @@ instance Monoid (IxedRouter rt n) where
   mempty = IxedRouter HM.empty Nothing HM.empty
   mappend = unionIxedRouter
   
-data IxedResponder :: ([Type] -> Bodiedness -> Type -> Type) -> Nat -> Type where
+data IxedResponder :: ([Type] -> Bodiedness Type -> Type -> Type) -> Nat -> Type where
   IxedResponder :: forall rt cs rq rp n.
        rt cs rq rp
     -> IxedRec CaptureDecoding n cs
