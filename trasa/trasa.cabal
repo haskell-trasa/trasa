@@ -15,7 +15,7 @@ description:
   goals are similar to the goals of `servant`. However, `trasa` relies
   on very different mechanisms to accomplish this. There are no typeclasses
   in this library, and there is a single closed type family that is provided
-  as a convenience. All of the real works is accomplish with GADTs, 
+  as a convenience. All of the real work is accomplish with GADTs, 
   universal quantification, and plain old haskell data types.
 
 library
