@@ -660,7 +660,12 @@ prettyIxedRouter indent (mnode,IxedRouter matches cap responders) =
       children1 = map (first (Just . ('/' : ) . T.unpack)) (HM.toList matches)
       children2 = maybe [] (\x -> [(Just "/:capture",x)]) cap
    in concat
-        [ maybe [] (\x -> [x]) $ flip fmap mnode $ \node -> spaces 
+        [ case mnode of
+            Nothing -> if length responders > 0
+              then ["/ " ++ showRespondersList responders]
+              else []
+            Just _ -> []
+        , maybe [] (\x -> [x]) $ flip fmap mnode $ \node -> spaces 
             ++ node
             ++ (if length responders > 0 then " " ++ showRespondersList responders else "")
         , prettyIxedRouter nextIndent =<< children1
