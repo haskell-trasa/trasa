@@ -133,10 +133,12 @@ serve :: forall t m route.
   -> (TrasaErr -> m (Event t (Concealed route)))
   -> m ()
 serve toMethod toCapCodec toReqBody toRespBody router widgetize onErr = mdo
-  (u0, urls) <- url $ ffor (switch (current jumpsD)) $ \(Concealed route captures reqBody) ->
-    linkWith toCapEnc (Prepared route captures reqBody)
+  -- Investigate why this is needed
+  let newUrls = ffor (switch (current jumpsD)) $ \(Concealed route captures reqBody) ->
+        linkWith toCapEnc (Prepared route captures reqBody)
+  (u0, urls) <- url newUrls
   pb <- getPostBuild
-  let choice = ffor (leftmost [urls, u0 <$ pb]) $ \us ->
+  let choice = ffor (leftmost [newUrls, urls, u0 <$ pb]) $ \us ->
         parseWith toReqBodyDec router "GET" us Nothing
       (failures, concealeds) = fanEither choice
   actions <- requestManyInternal toMethod toCapEnc toReqBodyEnc toRespBodyDec (fromConcealed <$> concealeds)
