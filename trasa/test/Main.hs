@@ -57,6 +57,7 @@ unitTests = testGroup "Unit Tests"
   ]
 
 data Route :: [Type] -> Bodiedness Type -> Type -> Type where
+  EmptyR :: Route '[] Bodyless Int
   HelloR :: Route '[] Bodyless Int
   AdditionR :: Route '[Int,Int] Bodyless Int
   IdentityR :: Route '[String] Bodyless String
@@ -85,6 +86,7 @@ allRoutes =
   , Constructed LeftPadR
   , Constructed TrickyOneR
   , Constructed TrickyTwoR
+  , Constructed EmptyR
   ]
 
 router :: Router Route
@@ -102,6 +104,9 @@ data Meta ps rq rp = Meta
 
 meta :: Route ps rq rp -> Meta ps rq rp
 meta x = case x of
+  EmptyR -> Meta 
+    (end)
+    bodyless (resp bodyInt) "get"
   HelloR -> Meta 
     (match "hello" ./ end)
     bodyless (resp bodyInt) "get"
@@ -162,6 +167,7 @@ instance Eq (Concealed Route) where
     (TrickyOneR,TrickyOneR) -> ps1 == ps2 && rq1 == rq2
     (TrickyTwoR,TrickyTwoR) -> ps1 == ps2 && rq1 == rq2
     (HelloR,HelloR) -> ps1 == ps2 && rq1 == rq2
+    (EmptyR,EmptyR) -> ps1 == ps2 && rq1 == rq2
 
 instance Arbitrary (Concealed Route) where
   arbitrary = oneof
@@ -171,6 +177,7 @@ instance Arbitrary (Concealed Route) where
     , Concealed TrickyOneR <$> arbitrary <*> arbitrary
     , Concealed TrickyTwoR <$> arbitrary <*> arbitrary
     , Concealed HelloR <$> arbitrary <*> arbitrary
+    , Concealed EmptyR <$> arbitrary <*> arbitrary
     ]
 
 instance Show (Concealed Route) where
