@@ -16,8 +16,9 @@ import Language.Javascript.JSaddle (eval,call)
 import GHCJS.DOM (currentWindowUnchecked)
 import GHCJS.DOM.Types (MonadJSM,liftJSM,ToJSVal(..))
 import GHCJS.DOM.EventM (on)
-import GHCJS.DOM.Window (popState,getLocation)
-import GHCJS.DOM.Location (toString)
+import GHCJS.DOM.Window (getLocation)
+import GHCJS.DOM.WindowEventHandlers (popState)
+import GHCJS.DOM.Location (getPathname)
 
 -- Move these into trasa core?
 decodeUrl :: T.Text -> [T.Text]
@@ -32,8 +33,8 @@ getPopState :: (Reflex t, TriggerEvent t m, MonadJSM m) => m (Event t [T.Text])
 getPopState = do
   window <- currentWindowUnchecked
   wrapDomEvent window (`on` popState) $ do
-    Just loc <- getLocation window
-    locStr   <- toString loc
+    loc <- getLocation window
+    locStr <- getPathname loc
     (return . decodeUrl) locStr
 
 url :: (MonadHold t m, TriggerEvent t m, PerformEvent t m, MonadJSM (Performable m), MonadJSM m) =>
@@ -41,8 +42,8 @@ url :: (MonadHold t m, TriggerEvent t m, PerformEvent t m, MonadJSM (Performable
 url us = do
   u0 <- liftJSM $ do
     window   <- currentWindowUnchecked
-    Just loc <- getLocation window
-    locStr   <- toString loc
+    loc <- getLocation window
+    locStr   <- getPathname loc
     (return . decodeUrl) locStr
   performEvent_ $ ffor us $ \uri -> liftJSM $ do
     f <- eval ("(function (url) { window[\"history\"][\"pushState\"](0,\"\",url) })" :: T.Text)
