@@ -101,9 +101,9 @@ import Data.Vinyl.TypeLevel (type (++))
 -- $setup
 -- >>> :set -XTypeInType
 
-data Bodiedness t = Body t | Bodyless
+data Bodiedness = forall a. Body a | Bodyless
 
-data RequestBody :: (Type -> Type) -> Bodiedness Type -> Type where
+data RequestBody :: (Type -> Type) -> Bodiedness -> Type where
   RequestBodyPresent :: f a -> RequestBody f ('Body a)
   RequestBodyAbsent :: RequestBody f 'Bodyless
 
@@ -209,7 +209,7 @@ linkWith :: forall rt rp.
   -> Prepared rt rp
   -> [T.Text]
 linkWith toCapEncs (Prepared route captures _) = encodePieces (toCapEncs route) captures
--- We should probably go ahead and just URL encode the path 
+-- We should probably go ahead and just URL encode the path
 -- when someone calls linkWith.
 
 data Payload = Payload
@@ -301,7 +301,7 @@ dispatchWith toReqBody toRespBody makeResponse router method accepts encodedPath
     encodings
   Right (fmap (Content typ . encode) response)
 
-routerWith :: 
+routerWith ::
      (forall cs' rq' rp'. rt cs' rq' rp' -> T.Text)
   -> (forall cs' rq' rp'. rt cs' rq' rp' -> Path CaptureDecoding cs')
   -> [Constructed rt]
@@ -337,8 +337,8 @@ parseWith toReqBody router method encodedPath mcontent = do
         badReq = first (TrasaErr N.status400 . LBS.fromStrict . T.encodeUtf8)
 
 -- | Parses only the path.
-parsePathWith :: forall rt. 
-     Router rt 
+parsePathWith :: forall rt.
+     Router rt
   -> T.Text -- ^ Method
   -> [T.Text] -- ^ Path Pieces
   -> Maybe (Pathed rt)
@@ -353,11 +353,11 @@ parsePathWith (Router r0) method pieces0 = do
   go captures ps (IxedRouter matches mcapture responders) = case ps of
     [] -> case HM.lookup method responders of
       Nothing -> []
-      Just respondersAtMethod -> 
-        mapMaybe (\(IxedResponder rt capDecs) -> 
+      Just respondersAtMethod ->
+        mapMaybe (\(IxedResponder rt capDecs) ->
           fmap (\x -> (Pathed rt x)) (decodeCaptureVector capDecs captures)
         ) respondersAtMethod
-    p : psNext -> 
+    p : psNext ->
       let res1 = maybe [] id $ fmap (go captures psNext) (HM.lookup p matches)
           -- Since this uses snocVec to build up the captures,
           -- this algorithm's complexity includes a term that is
@@ -368,8 +368,8 @@ parsePathWith (Router r0) method pieces0 = do
           res2 = maybe [] id $ fmap (go (snocVec p captures) psNext) mcapture
        in res1 ++ res2
 
-decodeCaptureVector :: 
-     IxedRec CaptureDecoding n xs 
+decodeCaptureVector ::
+     IxedRec CaptureDecoding n xs
   -> Vec n T.Text
   -> Maybe (Rec Identity xs)
 decodeCaptureVector IxedRecNil VecNil = Just RNil
@@ -380,14 +380,14 @@ decodeCaptureVector (IxedRecCons (CaptureDecoding decode) rnext) (VecCons piece 
 
 -- | A closed, total type family provided as a convenience to end users.
 --   Other function is this library take advantage of 'Arguments' to allow
---   end users use normal function application. Without this, users would 
+--   end users use normal function application. Without this, users would
 --   need to write out 'Record' and 'RequestBody' values by hand, which
 --   is tedious.
 --
 --   >>> :kind! Arguments '[Int,Bool] 'Bodyless Double
 --   Arguments '[Int,Bool] 'Bodyless Double :: *
 --   = Int -> Bool -> Double
-type family Arguments (pieces :: [Type]) (body :: Bodiedness Type) (result :: Type) :: Type where
+type family Arguments (pieces :: [Type]) (body :: Bodiedness) (result :: Type) :: Type where
   Arguments '[] ('Body b) r = b -> r
   Arguments '[] 'Bodyless r = r
   Arguments (c ': cs) b r = c -> Arguments cs b r
@@ -418,10 +418,10 @@ prepareExplicit route = go (Prepared route)
   go k PathNil RequestBodyAbsent = k RNil RequestBodyAbsent
   go k PathNil (RequestBodyPresent _) = \reqBod -> k RNil (RequestBodyPresent (Identity reqBod))
 
-handler :: forall cs rq x. 
-     Rec Identity cs 
-  -> RequestBody Identity rq 
-  -> Arguments cs rq x 
+handler :: forall cs rq x.
+     Rec Identity cs
+  -> RequestBody Identity rq
+  -> Arguments cs rq x
   -> x
 handler = go
   where
@@ -433,7 +433,7 @@ handler = go
 -- | A route with all types hidden: the captures, the request body,
 --   and the response body. This is needed so that users can
 --   enumerate over all the routes.
-data Constructed :: ([Type] -> Bodiedness Type -> Type -> Type) -> Type where
+data Constructed :: ([Type] -> Bodiedness -> Type -> Type) -> Type where
   Constructed :: forall rt cps rq rp. rt cps rq rp -> Constructed rt
 -- I dont really like the name Constructed, but I don't want to call it
 -- Some or Any since these get used a lot and a conflict would be likely.
@@ -449,12 +449,12 @@ mapConstructed f (Constructed sub) = Constructed (f sub)
 -- | Only includes the path. Once querystring params get added
 --   to this library, this data type should not have them. This
 --   type is only used internally and should not be exported.
-data Pathed :: ([Type] -> Bodiedness Type -> Type -> Type) -> Type  where
+data Pathed :: ([Type] -> Bodiedness -> Type -> Type) -> Type  where
   Pathed :: forall rt cps rq rp. rt cps rq rp -> Rec Identity cps -> Pathed rt
 
 -- | Includes the path and the request body (and the querystring
 --   params after they get added to this library).
-data Prepared :: ([Type] -> Bodiedness Type -> Type -> Type) -> Type -> Type where
+data Prepared :: ([Type] -> Bodiedness -> Type -> Type) -> Type -> Type where
   Prepared :: forall rt ps rq rp.
        rt ps rq rp
     -> Rec Identity ps
@@ -464,7 +464,7 @@ data Prepared :: ([Type] -> Bodiedness Type -> Type -> Type) -> Type -> Type whe
 -- | Only needed to implement 'parseWith'. Most users do not need this.
 --   If you need to create a route hierarchy to provide breadcrumbs,
 --   then you will need this.
-data Concealed :: ([Type] -> Bodiedness Type -> Type -> Type) -> Type where
+data Concealed :: ([Type] -> Bodiedness -> Type -> Type) -> Type where
   Concealed :: forall rt ps rq rp.
        rt ps rq rp
     -> Rec Identity ps
@@ -490,7 +490,7 @@ mapFindE e f = listToEither . mapMaybe f . toList
         listToEither (x:_) = Right x
 
 showReadBodyCodec :: (Show a, Read a) => BodyCodec a
-showReadBodyCodec = BodyCodec 
+showReadBodyCodec = BodyCodec
   (pure "text/haskell")
   (LBC.pack . show)
   (first T.pack . readEither . LBC.unpack)
@@ -503,16 +503,16 @@ data Nat = S !Nat | Z
 
 newtype Router rt = Router (IxedRouter rt 'Z)
 
-data IxedRouter :: ([Type] -> Bodiedness Type -> Type -> Type) -> Nat -> Type where
-  IxedRouter :: 
-       HashMap T.Text (IxedRouter rt n) 
+data IxedRouter :: ([Type] -> Bodiedness -> Type -> Type) -> Nat -> Type where
+  IxedRouter ::
+       HashMap T.Text (IxedRouter rt n)
     -> Maybe (IxedRouter rt ('S n))
     -> HashMap T.Text [IxedResponder rt n] -- Should be either zero or one, more than one means that there are trivially overlapped routes
     -> IxedRouter rt n
 
 -- | This monoid instance is provided so that we can
 --   conveniently use foldMap elsewhere. We do not
---   provide a Monoid instance for Router like we do 
+--   provide a Monoid instance for Router like we do
 --   for IxedRouter. End users only have one way to create
 --   a router, and if they combine a Router with itself
 --   using mappend, it would result in Router in which all
@@ -520,8 +520,8 @@ data IxedRouter :: ([Type] -> Bodiedness Type -> Type -> Type) -> Nat -> Type wh
 instance Monoid (IxedRouter rt n) where
   mempty = IxedRouter HM.empty Nothing HM.empty
   mappend = unionIxedRouter
-  
-data IxedResponder :: ([Type] -> Bodiedness Type -> Type -> Type) -> Nat -> Type where
+
+data IxedResponder :: ([Type] -> Bodiedness -> Type -> Type) -> Nat -> Type where
   IxedResponder :: forall rt cs rq rp n.
        rt cs rq rp
     -> IxedRec CaptureDecoding n cs
@@ -556,15 +556,15 @@ data HideIx :: (Nat -> k -> Type) -> k -> Type where
 
 snocVec :: a -> Vec n a -> Vec ('S n) a
 snocVec a VecNil = VecCons a VecNil
-snocVec a (VecCons b vnext) = 
+snocVec a (VecCons b vnext) =
   VecCons b (snocVec a vnext)
 
 pathToIxedPath :: Path f xs -> HideIx (IxedPath f) xs
 pathToIxedPath PathNil = HideIx IxedPathNil
-pathToIxedPath (PathConsCapture c pnext) = 
+pathToIxedPath (PathConsCapture c pnext) =
   case pathToIxedPath pnext of
     HideIx ixed -> HideIx (IxedPathCapture c ixed)
-pathToIxedPath (PathConsMatch s pnext) = 
+pathToIxedPath (PathConsMatch s pnext) =
   case pathToIxedPath pnext of
     HideIx ixed -> HideIx (IxedPathMatch s ixed)
 
@@ -603,18 +603,18 @@ reverseLenPathMatch = go
   go (LenPathMatch s pnext) = snocLenPathMatch s (go pnext)
   go (LenPathCapture pnext) = snocLenPathCapture (go pnext)
 
-singletonIxedRouter :: 
+singletonIxedRouter ::
   rt cs rq rp -> T.Text -> Path CaptureDecoding cs -> IxedRouter rt 'Z
 singletonIxedRouter route method capDecs = case pathToIxedPath capDecs of
   HideIx ixedCapDecs ->
     let ixedCapDecsRec = ixedPathToIxedRec ixedCapDecs
-        responder = IxedResponder route ixedCapDecsRec 
+        responder = IxedResponder route ixedCapDecsRec
         lenPath = reverseLenPathMatch (ixedPathToLenPath ixedCapDecs)
      in singletonIxedRouterHelper responder method lenPath
 
-singletonIxedRouterHelper :: 
+singletonIxedRouterHelper ::
   IxedResponder rt n -> T.Text -> LenPath n -> IxedRouter rt 'Z
-singletonIxedRouterHelper responder method path = 
+singletonIxedRouterHelper responder method path =
   let r = IxedRouter HM.empty Nothing (HM.singleton method [responder])
    in singletonIxedRouterGo r path
 
@@ -650,7 +650,7 @@ unionMaybeWith f x y = case x of
 prettyRouter :: Router rt -> String
 prettyRouter (Router r) = L.unlines (prettyIxedRouter 0 (Nothing,r))
 
-prettyIxedRouter :: 
+prettyIxedRouter ::
      Int -- ^ Indentation
   -> (Maybe String, IxedRouter rt n)
   -> [String]
@@ -665,7 +665,7 @@ prettyIxedRouter indent (mnode,IxedRouter matches cap responders) =
               then ["/ " ++ showRespondersList responders]
               else []
             Just _ -> []
-        , maybe [] (\x -> [x]) $ flip fmap mnode $ \node -> spaces 
+        , maybe [] (\x -> [x]) $ flip fmap mnode $ \node -> spaces
             ++ node
             ++ (if length responders > 0 then " " ++ showRespondersList responders else "")
         , prettyIxedRouter nextIndent =<< children1
@@ -678,4 +678,3 @@ showRespondersList = id
   . L.intercalate ","
   . map (\(method,xs) -> T.unpack method ++ (if L.length xs > 1 then "*" else ""))
   . HM.toList
-

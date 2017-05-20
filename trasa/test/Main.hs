@@ -56,7 +56,7 @@ unitTests = testGroup "Unit Tests"
       $ parse ["add","6","3"] Nothing @?= Right (conceal (prepare AdditionR 6 3))
   ]
 
-data Route :: [Type] -> Bodiedness Type -> Type -> Type where
+data Route :: [Type] -> Bodiedness -> Type -> Type where
   EmptyR :: Route '[] Bodyless Int
   HelloR :: Route '[] Bodyless Int
   AdditionR :: Route '[Int,Int] Bodyless Int

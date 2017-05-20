@@ -5,7 +5,7 @@
     this type be named @Route@, but this is not required.
 -}
 
-module Trasa.Tutorial 
+module Trasa.Tutorial
   ( -- * Dispatch and Routing
     -- $dispatchandrouting
   ) where
@@ -29,7 +29,7 @@ import Data.Text (Text)
 -- >>> :{
 -- data Counter = Red | Green | Blue
 --   deriving (Show,Read)
--- data Route :: [Type] -> Bodiedness Type -> Type -> Type where
+-- data Route :: [Type] -> Bodiedness -> Type -> Type where
 --   AssignR :: Route '[Counter,Int] 'Bodyless ()
 --   IncrementR :: Route '[Counter] 'Bodyless Int
 --   QueryR :: Route '[Counter] 'Bodyless Int
@@ -50,7 +50,7 @@ import Data.Text (Text)
 -- bodyInt = showReadBodyCodec
 -- meta :: Route ps rq rp -> Meta ps rq rp
 -- meta x = case x of
---   AssignR -> Meta 
+--   AssignR -> Meta
 --     (match "assign" ./ capture counter ./ match "to" ./ capture int ./ end)
 --     bodyless (resp bodyUnit) "post"
 --   IncrementR -> Meta
@@ -63,7 +63,7 @@ import Data.Text (Text)
 --     (match "total" ./ end)
 --     bodyless (resp bodyInt) "get"
 -- :}
--- 
+--
 -- Now, we can start using our routes. To do this, we take functions that
 -- @trasa@ exports and partially apply them to the route metadata that
 -- we have created. We can start with prepare and link:
@@ -81,4 +81,3 @@ import Data.Text (Text)
 -- ["assign","Green","to","5"]
 --
 --
-
