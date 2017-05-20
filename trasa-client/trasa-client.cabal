@@ -1,0 +1,19 @@
+name:                trasa-client
+version:             0.1.0.0
+synopsis:            Type safe http requests
+license:             MIT
+license-file:        LICENSE
+author:              Kyle McKean
+maintainer:          mckean.kylej@gmail.com
+copyright:           @2017 Kyle McKean
+category:            Web
+build-type:          Simple
+extra-source-files:  ChangeLog.md
+cabal-version:       >=1.10
+
+library
+  exposed-modules:     Trasa.Client
+  build-depends:       base >=4.9 && <4.10
+                     , trasa == 0.1.*
+  hs-source-dirs:      src
+  default-language:    Haskell2010

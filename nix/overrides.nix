@@ -6,6 +6,7 @@ in {
   # Core Libraries
   trasa = build ../trasa;
   trasa-server = build ../trasa-server;
+  trasa-client = build ../trasa-client;
   trasa-reflex = build ../trasa-reflex;
   # Example
   common = build ../example/common;

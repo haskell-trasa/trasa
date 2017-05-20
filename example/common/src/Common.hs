@@ -29,13 +29,12 @@ data Keyed a = Keyed
   , keyedValue :: a
   } deriving (Show, Read)
 
-
 data Person = Person
   { personAge :: Int
   , personName :: T.Text
   } deriving (Show, Read)
 
-data Route :: [Type] -> Bodiedness Type -> Type -> Type where
+data Route :: [Type] -> Bodiedness -> Type -> Type where
   AddR :: Route '[] (Body Person) Key
   EditR :: Route '[Key] (Body Person) ()
   DeleteR :: Route '[Key] Bodyless ()

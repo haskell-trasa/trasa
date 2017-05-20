@@ -20,10 +20,10 @@ import Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import Common
 
 routes :: forall cs rq rp.
-     TVar (M.Map Key Person) 
-  -> Route cs rq rp 
-  -> Rec Identity cs 
-  -> RequestBody Identity rq 
+     TVar (M.Map Key Person)
+  -> Route cs rq rp
+  -> Rec Identity cs
+  -> RequestBody Identity rq
   -> IO rp
 routes database route captures reqBody = atomically $ case route of
   AddR -> go handleAddR
@@ -67,13 +67,13 @@ handleViewAllR database = do
   return (fmap (uncurry Keyed) (M.toList m))
 
 router :: Router Route
-router = routerWith 
+router = routerWith
   (metaMethod . meta)
   (mapPath (CaptureDecoding . captureCodecDecode) . metaPath . meta)
   allRoutes
 
 application :: TVar (M.Map Key Person) -> Application
-application database = serve 
+application database = serve
   (mapRequestBody (Many . pure . bodyCodecToBodyDecoding) . metaRequestBody . meta)
   (mapResponseBody (Many . pure . bodyCodecToBodyEncoding) . metaResponseBody . meta)
   (routes database)
