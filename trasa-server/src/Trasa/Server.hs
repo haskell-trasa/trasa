@@ -35,20 +35,20 @@ import Control.Monad.State.Strict (StateT,runStateT,MonadState(..))
 
 import Trasa.Core
 
-newtype TrasaT a = TrasaT
-  { unTrasaT :: ExceptT TrasaErr (StateT (M.Map (CI BS.ByteString) T.Text) IO) a
+newtype TrasaT m a = TrasaT
+  { unTrasaT :: ExceptT TrasaErr (StateT (M.Map (CI BS.ByteString) T.Text) m) a
   } deriving (Functor,Applicative,Monad,MonadError TrasaErr,MonadState (M.Map (CI BS.ByteString) T.Text),MonadIO)
 
 runTrasaT
-  :: TrasaT a
+  :: TrasaT m a
   -> M.Map (CI BS.ByteString) T.Text -- ^ Headers
-  -> IO (Either TrasaErr a, M.Map (CI BS.ByteString) T.Text)
+  -> m (Either TrasaErr a, M.Map (CI BS.ByteString) T.Text)
 runTrasaT trasa headers = (flip runStateT headers . runExceptT  . unTrasaT) trasa
 
-serve ::
-     (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyDecoding) rq')
+serve
+  :: (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyDecoding) rq')
   -> (forall cs' rq' rp'. rt cs' rq' rp' -> ResponseBody (Many BodyEncoding) rp')
-  -> (forall cs' rq' rp'. rt cs' rq' rp' -> Rec Identity cs' -> RequestBody Identity rq' -> TrasaT rp')
+  -> (forall cs' rq' rp'. rt cs' rq' rp' -> Rec Identity cs' -> RequestBody Identity rq' -> TrasaT IO rp')
   -> Router rt -- ^ Router
   -> WAI.Application -- ^ WAI Application
 serve toReqBody toRespBody makeResponse router =
