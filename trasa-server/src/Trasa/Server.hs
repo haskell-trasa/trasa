@@ -12,7 +12,7 @@
 
 {-# OPTIONS_GHC -Wall -Werror #-}
 module Trasa.Server
-  ( TrasaT(..)
+  ( TrasaT
   , runTrasaT
   , serve
   ) where
@@ -30,20 +30,30 @@ import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Map.Strict as M
+import Control.Monad.Reader (ReaderT,runReaderT,MonadReader(..))
 import Control.Monad.Except (ExceptT,runExceptT,MonadError(..),MonadIO(..))
 import Control.Monad.State.Strict (StateT,runStateT,MonadState(..))
 
 import Trasa.Core
 
+type Headers = M.Map (CI BS.ByteString) T.Text
+
 newtype TrasaT m a = TrasaT
-  { unTrasaT :: ExceptT TrasaErr (StateT (M.Map (CI BS.ByteString) T.Text) m) a
-  } deriving (Functor,Applicative,Monad,MonadError TrasaErr,MonadState (M.Map (CI BS.ByteString) T.Text),MonadIO)
+  { unTrasaT :: ExceptT TrasaErr (StateT Headers (ReaderT Headers m)) a
+  } deriving
+  ( Functor
+  , Applicative
+  , Monad
+  , MonadError TrasaErr
+  , MonadIO
+  , MonadState (M.Map (CI BS.ByteString) T.Text)
+  , MonadReader (M.Map (CI BS.ByteString) T.Text))
 
 runTrasaT
   :: TrasaT m a
   -> M.Map (CI BS.ByteString) T.Text -- ^ Headers
   -> m (Either TrasaErr a, M.Map (CI BS.ByteString) T.Text)
-runTrasaT trasa headers = (flip runStateT headers . runExceptT  . unTrasaT) trasa
+runTrasaT trasa headers = (flip runReaderT headers . flip runStateT M.empty . runExceptT  . unTrasaT) trasa
 
 serve
   :: (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyDecoding) rq')
