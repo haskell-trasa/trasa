@@ -30,7 +30,7 @@ import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Map.Strict as M
-import Control.Monad.Reader (ReaderT,runReaderT,MonadReader(..))
+import Control.Monad.Reader (ReaderT,runReaderT,MonadReader(..),MonadTrans(..))
 import Control.Monad.Except (ExceptT,runExceptT,MonadError(..),MonadIO(..))
 import Control.Monad.State.Strict (StateT,runStateT,MonadState(..))
 
@@ -48,6 +48,9 @@ newtype TrasaT m a = TrasaT
   , MonadIO
   , MonadState (M.Map (CI BS.ByteString) T.Text)
   , MonadReader (M.Map (CI BS.ByteString) T.Text))
+
+instance MonadTrans TrasaT where
+  lift = TrasaT . lift . lift . lift
 
 runTrasaT
   :: TrasaT m a
