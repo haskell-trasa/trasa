@@ -253,7 +253,6 @@ encodeRequestBody (RequestBodyPresent (Many encodings)) (RequestBodyPresent (Ide
   case NE.head encodings of
     BodyEncoding names encoding -> Just (Content (NE.head names) (encoding rq))
 
--- TODO: Add better error handling ie: Either TrasaErr rp
 decodeResponseBody :: ResponseBody (Many BodyDecoding) rp -> Content -> Maybe rp
 decodeResponseBody (ResponseBody (Many decodings)) (Content name content) =
   flip mapFind decodings $ \(BodyDecoding names decode) ->

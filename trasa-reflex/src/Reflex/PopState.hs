@@ -3,11 +3,12 @@
 {-# OPTIONS_GHC -Wall -Werror #-}
 module Reflex.PopState (url,decodeUrl,encodeUrl) where
 
+import Data.Semigroup ((<>))
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Lazy.Builder as LBS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import Network.HTTP.Types.URI (extractPath,decodePathSegments,encodePathSegments)
+import Network.HTTP.Types.URI (extractPath,decodePathSegments,encodePathSegmentsRelative)
 import Reflex.Class (Reflex(..),MonadHold(..),ffor)
 import Reflex.PerformEvent.Class (PerformEvent(..))
 import Reflex.TriggerEvent.Class (TriggerEvent)
@@ -27,7 +28,7 @@ decodeUrl = decodePathSegments . extractPath . T.encodeUtf8
 -- This use of decodeUtf8 is safe because http-types.encodePathSegments
 -- has a postconditon that the builder is utf8 encoded
 encodeUrl :: [T.Text] -> T.Text
-encodeUrl = T.decodeUtf8 . LBS.toStrict . LBS.toLazyByteString . encodePathSegments
+encodeUrl = T.decodeUtf8 . LBS.toStrict . LBS.toLazyByteString . (LBS.char8 '/' <>) . encodePathSegmentsRelative
 
 getPopState :: (Reflex t, TriggerEvent t m, MonadJSM m) => m (Event t [T.Text])
 getPopState = do
