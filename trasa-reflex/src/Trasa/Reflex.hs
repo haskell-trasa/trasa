@@ -21,7 +21,6 @@ import qualified Data.ByteString.Lazy as LBS (toStrict,fromStrict)
 import Data.Functor.Identity (Identity(..))
 import Data.Vinyl (Rec(..))
 import Data.Foldable (toList)
-import qualified Data.Set as S
 import qualified Data.Map.Strict as M
 import qualified Network.HTTP.Types.Status as N
 import Reflex.Dom
@@ -113,7 +112,7 @@ requestManyInternal toMethod toCapEncs toReqBody toRespBody contResp =
           where conf :: XhrRequestConfig BS.ByteString
                 conf = def & xhrRequestConfig_sendData .~ maybe "" (LBS.toStrict . contentData) content
                            & xhrRequestConfig_headers .~ headers
-                           & xhrRequestConfig_responseHeaders .~ OnlyHeaders (S.singleton "Content-Type")
+                           & xhrRequestConfig_responseHeaders .~ AllHeaders
                 headers = maybe acceptHeader (\ct -> M.insert "Content-Type" (contentType ct) acceptHeader) content
                 acceptHeader = "Accept" =: T.intercalate ", " (toList accepts)
                 Payload _ content accepts = payloadWith toCapEncs toReqBody toRespBody p
