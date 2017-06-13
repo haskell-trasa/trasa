@@ -80,6 +80,7 @@ module Trasa.Core
 
 import Data.Kind (Type)
 import Data.Functor.Identity (Identity(..))
+import Control.Applicative (liftA2)
 import Data.Maybe (mapMaybe,listToMaybe,isJust)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List as L
@@ -107,13 +108,13 @@ data RequestBody :: (Type -> Type) -> Bodiedness -> Type where
   RequestBodyPresent :: f a -> RequestBody f ('Body a)
   RequestBodyAbsent :: RequestBody f 'Bodyless
 
-mapRequestBody :: (forall x. rqf x -> rqf' x) -> RequestBody rqf rq -> RequestBody rqf' rq
+mapRequestBody :: (forall x. rqf x -> rqf' x) -> RequestBody rqf request -> RequestBody rqf' request
 mapRequestBody _ RequestBodyAbsent = RequestBodyAbsent
 mapRequestBody f (RequestBodyPresent reqBod) = RequestBodyPresent (f reqBod)
 
-newtype ResponseBody rpf rp = ResponseBody { getResponseBody :: rpf rp }
+newtype ResponseBody rpf response = ResponseBody { getResponseBody :: rpf response }
 
-mapResponseBody :: (forall x. rpf x -> rpf' x) -> ResponseBody rpf rq -> ResponseBody rpf' rq
+mapResponseBody :: (forall x. rpf x -> rpf' x) -> ResponseBody rpf request -> ResponseBody rpf' request
 mapResponseBody f (ResponseBody resBod) = ResponseBody (f resBod)
 
 data Path :: (Type -> Type) -> [Type] -> Type where
@@ -133,6 +134,10 @@ appendPath (PathConsCapture cas as) bs = PathConsCapture cas (appendPath as bs)
 
 newtype Many f a = Many { getMany :: NonEmpty (f a) }
   deriving (Functor)
+
+instance Applicative f => Applicative (Many f) where
+  pure = Many . pure . pure
+  Many mf <*> Many mx = Many $ liftA2 (<*>) mf mx
 
 mapMany :: (forall x. f x -> g x) -> Many f a -> Many g a
 mapMany eta (Many m) = Many (fmap eta m)
@@ -167,26 +172,23 @@ infixr 7 ./
 (./) :: (a -> b) -> a -> b
 (./) f a = f a
 
-match :: T.Text -> Path cpf ps -> Path cpf ps
+match :: T.Text -> Path cpf caps -> Path cpf caps
 match = PathConsMatch
 
-capture :: cpf cp -> Path cpf cps -> Path cpf (cp ': cps)
+capture :: cpf cap -> Path cpf caps -> Path cpf (cap ': caps)
 capture = PathConsCapture
 
 end :: Path cpf '[]
 end = PathNil
 
-body :: rqf rq -> RequestBody rqf ('Body rq)
+body :: rqf req -> RequestBody rqf ('Body req)
 body = RequestBodyPresent
 
 bodyless :: RequestBody rqf 'Bodyless
 bodyless = RequestBodyAbsent
 
-resp :: rpf rp -> ResponseBody rpf rp
+resp :: rpf resp -> ResponseBody rpf resp
 resp = ResponseBody
-
--- data Fragment (x :: [Type] -> [Type]) where
---   FragmentCapture :: Capture a -> Fragment ('(:) a)
 
 data CaptureCodec a = CaptureCodec
   { captureCodecEncode :: a -> T.Text
@@ -204,9 +206,9 @@ captureCodecToCaptureDecoding (CaptureCodec _ dec) = CaptureDecoding dec
 
 -- | This does not use the request body since the request body
 --   does not appear in a URL.
-linkWith :: forall rt rp.
-     (forall cs' rq' rp'. rt cs' rq' rp' -> Path CaptureEncoding cs')
-  -> Prepared rt rp
+linkWith :: forall route response.
+     (forall caps req resp. route caps req resp -> Path CaptureEncoding caps)
+  -> Prepared route response
   -> [T.Text]
 linkWith toCapEncs (Prepared route captures _) = encodePieces (toCapEncs route) captures
 -- We should probably go ahead and just URL encode the path
@@ -218,11 +220,11 @@ data Payload = Payload
   , payloadAccepts :: NonEmpty T.Text
   } deriving (Show,Eq,Ord)
 
-payloadWith :: forall rt rp.
-     (forall cs' rq' rp'. rt cs' rq' rp' -> Path CaptureEncoding cs')
-  -> (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyEncoding) rq')
-  -> (forall cs' rq' rp'. rt cs' rq' rp' -> ResponseBody (Many BodyDecoding) rp')
-  -> Prepared rt rp
+payloadWith :: forall route response.
+     (forall caps req resp. route caps req resp -> Path CaptureEncoding caps)
+  -> (forall caps req resp. route caps req resp -> RequestBody (Many BodyEncoding) req)
+  -> (forall caps req resp. route caps req resp -> ResponseBody (Many BodyDecoding) resp)
+  -> Prepared route response
   -> Payload
 payloadWith toCapEncs toReqBody toRespBody p@(Prepared route _ reqBody) =
   Payload (linkWith toCapEncs p) content accepts
@@ -231,13 +233,13 @@ payloadWith toCapEncs toReqBody toRespBody p@(Prepared route _ reqBody) =
         accepts = bodyDecodingNames =<< decodings
 
 requestWith :: Functor m
-  => (forall cs' rq' rp'. rt cs' rq' rp' -> T.Text)
-  -> (forall cs' rq' rp'. rt cs' rq' rp' -> Path CaptureEncoding cs')
-  -> (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyEncoding) rq')
-  -> (forall cs' rq' rp'. rt cs' rq' rp' -> ResponseBody (Many BodyDecoding) rp')
+  => (forall caps req resp. route caps req resp -> T.Text)
+  -> (forall caps req resp. route caps req resp -> Path CaptureEncoding caps)
+  -> (forall caps req resp. route caps req resp -> RequestBody (Many BodyEncoding) req)
+  -> (forall caps req resp. route caps req resp -> ResponseBody (Many BodyDecoding) resp)
   -> (T.Text -> [T.Text] -> Maybe Content -> [T.Text] -> m Content) -- ^ method, path pieces, content, accepts -> response
-  -> Prepared rt rp
-  -> m (Maybe rp)
+  -> Prepared route response
+  -> m (Maybe response)
 requestWith toMethod toCapEncs toReqBody toRespBody run (Prepared route captures reqBody) =
   let method = toMethod route
       encodedCaptures = encodePieces (toCapEncs route) captures
@@ -247,23 +249,23 @@ requestWith toMethod toCapEncs toReqBody toRespBody run (Prepared route captures
       accepts = toList (bodyDecodingNames =<< decodings)
    in fmap (decodeResponseBody respBodyDecs) (run method encodedCaptures content accepts)
 
-encodeRequestBody :: RequestBody (Many BodyEncoding) rq -> RequestBody Identity rq -> Maybe Content
+encodeRequestBody :: RequestBody (Many BodyEncoding) request -> RequestBody Identity request -> Maybe Content
 encodeRequestBody RequestBodyAbsent RequestBodyAbsent = Nothing
 encodeRequestBody (RequestBodyPresent (Many encodings)) (RequestBodyPresent (Identity rq)) =
   case NE.head encodings of
     BodyEncoding names encoding -> Just (Content (NE.head names) (encoding rq))
 
-decodeResponseBody :: ResponseBody (Many BodyDecoding) rp -> Content -> Maybe rp
+decodeResponseBody :: ResponseBody (Many BodyDecoding) response -> Content -> Maybe response
 decodeResponseBody (ResponseBody (Many decodings)) (Content name content) =
   flip mapFind decodings $ \(BodyDecoding names decode) ->
     if elem name names then hush (decode content) else Nothing
   where hush (Left _)  = Nothing
         hush (Right a) = Just a
 
-encodePieces :: Path CaptureEncoding cps -> Rec Identity cps -> [T.Text]
+encodePieces :: Path CaptureEncoding captures -> Rec Identity captures -> [T.Text]
 encodePieces = go
   where
-  go :: forall cps. Path CaptureEncoding cps -> Rec Identity cps -> [T.Text]
+  go :: forall caps. Path CaptureEncoding caps -> Rec Identity caps -> [T.Text]
   go PathNil RNil = []
   go (PathConsMatch str ps) xs = str : go ps xs
   go (PathConsCapture (CaptureEncoding enc) ps) (Identity x :& xs) = enc x : go ps xs
@@ -276,12 +278,12 @@ data TrasaErr = TrasaErr
 status :: N.Status -> TrasaErr
 status s = TrasaErr s ""
 
-dispatchWith :: forall rt m.
+dispatchWith :: forall route m.
      Applicative m
-  => (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyDecoding) rq')
-  -> (forall cs' rq' rp'. rt cs' rq' rp' -> ResponseBody (Many BodyEncoding) rp')
-  -> (forall cs' rq' rp'. rt cs' rq' rp' -> Rec Identity cs' -> RequestBody Identity rq' -> m rp')
-  -> Router rt -- ^ Router
+  => (forall caps req resp. route caps req resp -> RequestBody (Many BodyDecoding) req)
+  -> (forall caps req resp. route caps req resp -> ResponseBody (Many BodyEncoding) resp)
+  -> (forall caps req resp. route caps req resp -> Rec Identity caps -> RequestBody Identity req -> m resp)
+  -> Router route -- ^ Router
   -> T.Text -- ^ Method
   -> [T.Text] -- ^ Accept headers
   -> [T.Text] -- ^ Path Pieces
@@ -301,23 +303,23 @@ dispatchWith toReqBody toRespBody makeResponse router method accepts encodedPath
   Right (fmap (Content typ . encode) response)
 
 routerWith ::
-     (forall cs' rq' rp'. rt cs' rq' rp' -> T.Text)
-  -> (forall cs' rq' rp'. rt cs' rq' rp' -> Path CaptureDecoding cs')
-  -> [Constructed rt]
-  -> Router rt
+     (forall caps req resp. route caps req resp -> T.Text)
+  -> (forall caps req resp. route caps req resp -> Path CaptureDecoding caps)
+  -> [Constructed route]
+  -> Router route
 routerWith toMethod toCapDec enumeratedRoutes = Router $ foldMap
   (\(Constructed route) -> singletonIxedRouter route (toMethod route) (toCapDec route))
   enumeratedRoutes
 
 -- | Parses the path, the querystring (once this gets added), and
 --   the request body.
-parseWith :: forall rt.
-     (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyDecoding) rq')
-  -> Router rt -- ^ Router
+parseWith :: forall route.
+     (forall caps req resp. route caps req resp -> RequestBody (Many BodyDecoding) req)
+  -> Router route -- ^ Router
   -> T.Text -- ^ Request Method
   -> [T.Text] -- ^ Path Pieces
   -> Maybe Content -- ^ Request content type and body
-  -> Either TrasaErr (Concealed rt)
+  -> Either TrasaErr (Concealed route)
 parseWith toReqBody router method encodedPath mcontent = do
   Pathed route captures <- maybe (Left (status N.status404)) Right
     $ parsePathWith router method encodedPath
@@ -336,25 +338,25 @@ parseWith toReqBody router method encodedPath mcontent = do
         badReq = first (TrasaErr N.status400 . LBS.fromStrict . T.encodeUtf8)
 
 -- | Parses only the path.
-parsePathWith :: forall rt.
-     Router rt
+parsePathWith :: forall route.
+     Router route
   -> T.Text -- ^ Method
   -> [T.Text] -- ^ Path Pieces
-  -> Maybe (Pathed rt)
+  -> Maybe (Pathed route)
 parsePathWith (Router r0) method pieces0 = do
   listToMaybe (go VecNil pieces0 r0)
   where
   go :: forall n.
         Vec n T.Text -- captures being accumulated
      -> [T.Text] -- remaining pieces
-     -> IxedRouter rt n -- router fragment
-     -> [Pathed rt]
+     -> IxedRouter route n -- router fragment
+     -> [Pathed route]
   go captures ps (IxedRouter matches mcapture responders) = case ps of
     [] -> case HM.lookup method responders of
       Nothing -> []
       Just respondersAtMethod ->
-        mapMaybe (\(IxedResponder rt capDecs) ->
-          fmap (\x -> (Pathed rt x)) (decodeCaptureVector capDecs captures)
+        mapMaybe (\(IxedResponder route capDecs) ->
+          fmap (\x -> (Pathed route x)) (decodeCaptureVector capDecs captures)
         ) respondersAtMethod
     p : psNext ->
       let res1 = maybe [] id $ fmap (go captures psNext) (HM.lookup p matches)
@@ -392,39 +394,39 @@ type family Arguments (pieces :: [Type]) (body :: Bodiedness) (result :: Type) :
   Arguments (c ': cs) b r = c -> Arguments cs b r
 
 prepareWith ::
-     (forall cs' rq' rp'. rt cs' rq' rp' -> Path pf cs')
-  -> (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody rqf rq')
-  -> rt cs rq rp
-  -> Arguments cs rq (Prepared rt rp)
+     (forall caps req resp. route caps req resp -> Path pf caps)
+  -> (forall caps req resp. route caps req resp -> RequestBody rqf req)
+  -> route captures request response
+  -> Arguments captures request (Prepared route response)
 prepareWith toPath toReqBody route =
   prepareExplicit route (toPath route) (toReqBody route)
 
-prepareExplicit :: forall rt cs rq rp rqf pf.
-     rt cs rq rp
-  -> Path pf cs
-  -> RequestBody rqf rq
-  -> Arguments cs rq (Prepared rt rp)
+prepareExplicit :: forall route captures request response rqf pf.
+     route captures request response
+  -> Path pf captures
+  -> RequestBody rqf request
+  -> Arguments captures request (Prepared route response)
 prepareExplicit route = go (Prepared route)
   where
   -- Adopted from: https://www.reddit.com/r/haskell/comments/67l9so/currying_a_typelevel_list/dgrghxz/
-  go :: forall cs' z.
-        (Rec Identity cs' -> RequestBody Identity rq -> z)
-     -> Path pf cs'
-     -> RequestBody rqf rq
-     -> Arguments cs' rq z -- (HList cs', RequestBody Identity rq)
+  go :: forall caps z.
+        (Rec Identity caps -> RequestBody Identity request -> z)
+     -> Path pf caps
+     -> RequestBody rqf request
+     -> Arguments caps request z -- (HList caps, RequestBody Identity rq)
   go k (PathConsCapture _ pnext) b = \c -> go (\hlist reqBod -> k (Identity c :& hlist) reqBod) pnext b
   go k (PathConsMatch _ pnext) b = go k pnext b
   go k PathNil RequestBodyAbsent = k RNil RequestBodyAbsent
   go k PathNil (RequestBodyPresent _) = \reqBod -> k RNil (RequestBodyPresent (Identity reqBod))
 
-handler :: forall cs rq x.
-     Rec Identity cs
-  -> RequestBody Identity rq
-  -> Arguments cs rq x
+handler :: forall captures request x.
+     Rec Identity captures
+  -> RequestBody Identity request
+  -> Arguments captures request x
   -> x
 handler = go
   where
-  go :: forall cs'. Rec Identity cs' -> RequestBody Identity rq -> Arguments cs' rq x -> x
+  go :: forall caps. Rec Identity caps -> RequestBody Identity request -> Arguments caps request x -> x
   go (Identity c :& cs) b f = go cs b (f c)
   go RNil RequestBodyAbsent f = f
   go RNil (RequestBodyPresent (Identity b)) f = f b
@@ -433,7 +435,7 @@ handler = go
 --   and the response body. This is needed so that users can
 --   enumerate over all the routes.
 data Constructed :: ([Type] -> Bodiedness -> Type -> Type) -> Type where
-  Constructed :: forall rt cps rq rp. rt cps rq rp -> Constructed rt
+  Constructed :: route captures request response -> Constructed route
 -- I dont really like the name Constructed, but I don't want to call it
 -- Some or Any since these get used a lot and a conflict would be likely.
 -- Think, think, think.
@@ -449,29 +451,29 @@ mapConstructed f (Constructed sub) = Constructed (f sub)
 --   to this library, this data type should not have them. This
 --   type is only used internally and should not be exported.
 data Pathed :: ([Type] -> Bodiedness -> Type -> Type) -> Type  where
-  Pathed :: forall rt cps rq rp. rt cps rq rp -> Rec Identity cps -> Pathed rt
+  Pathed :: route captures request response -> Rec Identity captures -> Pathed route
 
 -- | Includes the path and the request body (and the querystring
 --   params after they get added to this library).
 data Prepared :: ([Type] -> Bodiedness -> Type -> Type) -> Type -> Type where
-  Prepared :: forall rt ps rq rp.
-       rt ps rq rp
-    -> Rec Identity ps
-    -> RequestBody Identity rq
-    -> Prepared rt rp
+  Prepared ::
+       route captures request response
+    -> Rec Identity captures
+    -> RequestBody Identity request
+    -> Prepared route response
 
 -- | Only needed to implement 'parseWith'. Most users do not need this.
 --   If you need to create a route hierarchy to provide breadcrumbs,
 --   then you will need this.
 data Concealed :: ([Type] -> Bodiedness -> Type -> Type) -> Type where
-  Concealed :: forall rt ps rq rp.
-       rt ps rq rp
-    -> Rec Identity ps
-    -> RequestBody Identity rq
-    -> Concealed rt
+  Concealed ::
+       route captures request response
+    -> Rec Identity captures
+    -> RequestBody Identity request
+    -> Concealed route
 
 -- | Conceal the response type.
-conceal :: Prepared rt rp -> Concealed rt
+conceal :: Prepared route response -> Concealed route
 conceal (Prepared a b c) = Concealed a b c
 
 -- | The HTTP content type and body.
@@ -500,14 +502,14 @@ showReadCaptureCodec = CaptureCodec (T.pack . show) (readMaybe . T.unpack)
 -- | Only promoted version used.
 data Nat = S !Nat | Z
 
-newtype Router rt = Router (IxedRouter rt 'Z)
+newtype Router route = Router (IxedRouter route 'Z)
 
 data IxedRouter :: ([Type] -> Bodiedness -> Type -> Type) -> Nat -> Type where
   IxedRouter ::
-       HashMap T.Text (IxedRouter rt n)
-    -> Maybe (IxedRouter rt ('S n))
-    -> HashMap T.Text [IxedResponder rt n] -- Should be either zero or one, more than one means that there are trivially overlapped routes
-    -> IxedRouter rt n
+       HashMap T.Text (IxedRouter route n)
+    -> Maybe (IxedRouter route ('S n))
+    -> HashMap T.Text [IxedResponder route n] -- Should be either zero or one, more than one means that there are trivially overlapped routes
+    -> IxedRouter route n
 
 -- | This monoid instance is provided so that we can
 --   conveniently use foldMap elsewhere. We do not
@@ -516,15 +518,15 @@ data IxedRouter :: ([Type] -> Bodiedness -> Type -> Type) -> Nat -> Type where
 --   a router, and if they combine a Router with itself
 --   using mappend, it would result in Router in which all
 --   routes were overlapped.
-instance Monoid (IxedRouter rt n) where
+instance Monoid (IxedRouter route n) where
   mempty = IxedRouter HM.empty Nothing HM.empty
   mappend = unionIxedRouter
 
 data IxedResponder :: ([Type] -> Bodiedness -> Type -> Type) -> Nat -> Type where
-  IxedResponder :: forall rt cs rq rp n.
-       rt cs rq rp
-    -> IxedRec CaptureDecoding n cs
-    -> IxedResponder rt n
+  IxedResponder :: forall route captures request response n.
+       route captures request response
+    -> IxedRec CaptureDecoding n captures
+    -> IxedResponder route n
 
 data IxedRec :: (k -> Type) -> Nat -> [k] -> Type where
   IxedRecNil :: IxedRec f 'Z '[]
@@ -603,7 +605,7 @@ reverseLenPathMatch = go
   go (LenPathCapture pnext) = snocLenPathCapture (go pnext)
 
 singletonIxedRouter ::
-  rt cs rq rp -> T.Text -> Path CaptureDecoding cs -> IxedRouter rt 'Z
+  route captures request response -> T.Text -> Path CaptureDecoding captures -> IxedRouter route 'Z
 singletonIxedRouter route method capDecs = case pathToIxedPath capDecs of
   HideIx ixedCapDecs ->
     let ixedCapDecsRec = ixedPathToIxedRec ixedCapDecs
@@ -612,22 +614,22 @@ singletonIxedRouter route method capDecs = case pathToIxedPath capDecs of
      in singletonIxedRouterHelper responder method lenPath
 
 singletonIxedRouterHelper ::
-  IxedResponder rt n -> T.Text -> LenPath n -> IxedRouter rt 'Z
+  IxedResponder route n -> T.Text -> LenPath n -> IxedRouter route 'Z
 singletonIxedRouterHelper responder method path =
   let r = IxedRouter HM.empty Nothing (HM.singleton method [responder])
    in singletonIxedRouterGo r path
 
 singletonIxedRouterGo ::
-  IxedRouter rt n -> LenPath n -> IxedRouter rt 'Z
+  IxedRouter route n -> LenPath n -> IxedRouter route 'Z
 singletonIxedRouterGo r lp = case lp of
   LenPathNil -> r
   LenPathCapture lpNext -> singletonIxedRouterGo (IxedRouter HM.empty (Just r) HM.empty) lpNext
   LenPathMatch s lpNext -> singletonIxedRouterGo (IxedRouter (HM.singleton s r) Nothing HM.empty) lpNext
 
-unionIxedRouter :: IxedRouter rt n -> IxedRouter rt n -> IxedRouter rt n
+unionIxedRouter :: IxedRouter route n -> IxedRouter route n -> IxedRouter route n
 unionIxedRouter = go
   where
-  go :: forall rt n. IxedRouter rt n -> IxedRouter rt n -> IxedRouter rt n
+  go :: forall route n. IxedRouter route n -> IxedRouter route n -> IxedRouter route n
   go (IxedRouter matchesA captureA respsA) (IxedRouter matchesB captureB respsB) =
     IxedRouter
       (HM.unionWith go matchesA matchesB)
@@ -646,12 +648,12 @@ unionMaybeWith f x y = case x of
 --   methods that each route accepts. If there are any trivially
 --   overlapped routes, the appends are asterisk to the method name
 --   for which the routes are overlapped.
-prettyRouter :: Router rt -> String
+prettyRouter :: Router route -> String
 prettyRouter (Router r) = L.unlines (prettyIxedRouter 0 (Nothing,r))
 
 prettyIxedRouter ::
      Int -- ^ Indentation
-  -> (Maybe String, IxedRouter rt n)
+  -> (Maybe String, IxedRouter route n)
   -> [String]
 prettyIxedRouter indent (mnode,IxedRouter matches cap responders) =
   let spaces = L.replicate indent ' '

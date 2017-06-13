@@ -34,10 +34,10 @@ import Data.Text (Text)
 --   IncrementR :: Route '[Counter] 'Bodyless Int
 --   QueryR :: Route '[Counter] 'Bodyless Int
 --   TotalR :: Route '[] 'Bodyless Int
--- data Meta cs rq rp = Meta
---   { metaPath :: Path CaptureCodec cs
---   , metaRequestBody :: RequestBody BodyCodec rq
---   , metaResponseBody :: ResponseBody BodyCodec rp
+-- data Meta captures request response = Meta
+--   { metaPath :: Path CaptureCodec captures
+--   , metaRequestBody :: RequestBody BodyCodec request
+--   , metaResponseBody :: ResponseBody BodyCodec response
 --   , metaMethod :: Text
 --   }
 -- int :: CaptureCodec Int
@@ -48,7 +48,7 @@ import Data.Text (Text)
 -- bodyUnit = BodyCodec (pure "text/plain") (const "") (const (Right ()))
 -- bodyInt :: BodyCodec Int
 -- bodyInt = showReadBodyCodec
--- meta :: Route ps rq rp -> Meta ps rq rp
+-- meta :: Route captures request response -> Meta captures request response
 -- meta x = case x of
 --   AssignR -> Meta
 --     (match "assign" ./ capture counter ./ match "to" ./ capture int ./ end)
@@ -70,10 +70,12 @@ import Data.Text (Text)
 --
 -- >>> prepare = prepareWith (metaPath . meta) (metaRequestBody . meta)
 -- >>> :t prepare
--- prepare :: Route cs rq rp -> Arguments cs rq (Prepared Route rp)
+-- prepare
+--   :: Route captures request response
+--      -> Arguments captures request (Prepared Route response)
 -- >>> link = linkWith (mapPath (CaptureEncoding . captureCodecEncode) . metaPath . meta)
 -- >>> :t link
--- link :: Prepared Route rp -> [Text]
+-- link :: Prepared Route response -> [Text]
 --
 -- Now we can use link to encode our routes:
 --
