@@ -59,12 +59,6 @@ data Pair a b = Pair !a !b
 newtype Preps route response f a = Preps (f (Pair (ResponseHandler route response) a))
   deriving (Functor,Foldable,Traversable)
 
-withResp ::
-   (forall captures request response. route captures request response -> ResponseBody (Many BodyDecoding) response)
-   -> Prepared route resp
-   -> ResponseHandler route resp
-withResp toReqBody p@(Prepared route _ _) = ResponseHandler p (toReqBody route) id
-
 requestWith :: forall t m route resp.
   MonadWidget t m
   => (forall captures request response. route captures request response -> T.Text)
@@ -86,7 +80,8 @@ requestManyWith :: forall t m f route resp.
   -> Event t (f (Prepared route resp))
   -> m (Event t (f (Either TrasaErr resp)))
 requestManyWith toMethod toCapEncs toReqBody toRespBody prepared =
-  requestMultiWith toMethod toCapEncs toReqBody toRespBody (fmap (withResp toRespBody) <$> prepared)
+  requestMultiWith toMethod toCapEncs toReqBody toRespBody (fmap toResponseHandler <$> prepared)
+  where toResponseHandler p@(Prepared route _ _) = ResponseHandler p (toRespBody route) id
 
 -- TODO: Are these error codes correct
 requestMultiWith :: forall t m f route a.
@@ -102,15 +97,17 @@ requestMultiWith toMethod toCapEncs toReqBody toRespBody contResp =
   where parseXhrResponses :: Preps route a f XhrResponse -> f (Either TrasaErr a)
         parseXhrResponses (Preps res) = fmap parseOneXhrResponse res
         parseOneXhrResponse :: Pair (ResponseHandler route a) XhrResponse -> Either TrasaErr a
-        parseOneXhrResponse (Pair (ResponseHandler (Prepared route _ _) _ fromResp) xhrRes) =
-          case M.lookup "Content-Type" (_xhrResponse_headers xhrRes) of
-            Just content -> case _xhrResponse_responseText xhrRes of
-              Just txt -> let bs = LBS.fromStrict (TE.encodeUtf8 txt) in
-                case decodeResponseBody (toRespBody route) (Content content bs) of
-                  Just a -> Right (fromResp a)
-                  Nothing -> Left (TrasaErr N.status400 "Could not decode response body")
-              Nothing -> Left (TrasaErr N.status400 "No body returned from server")
-            Nothing -> Left (TrasaErr N.status406 "No content type from server")
+        parseOneXhrResponse (Pair (ResponseHandler (Prepared route _ _) _ fromResp) (XhrResponse statusCode _ _ response headers)) =
+          case statusCode < 400 of
+            True -> case M.lookup "Content-Type" headers of
+              Just content -> case response of
+                Just txt -> let bs = LBS.fromStrict (TE.encodeUtf8 txt) in
+                  case decodeResponseBody (toRespBody route) (Content content bs) of
+                    Just a -> Right (fromResp a)
+                    Nothing -> Left (TrasaErr N.status400 "Could not decode response body")
+                Nothing -> Left (TrasaErr N.status400 "No body returned from server")
+              Nothing -> Left (TrasaErr N.status406 "No content type from server")
+            False -> Left (TrasaErr (N.mkStatus (fromIntegral statusCode) (maybe "" TE.encodeUtf8 response)) "")
         buildXhrRequests :: f (ResponseHandler route a) -> Preps route a f (XhrRequest BS.ByteString)
         buildXhrRequests = Preps . fmap buildOneXhrRequest
         buildOneXhrRequest :: ResponseHandler route a -> Pair (ResponseHandler route a) (XhrRequest BS.ByteString)
