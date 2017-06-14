@@ -22,21 +22,22 @@ import Network.Wai.Middleware.RequestLogger (logStdoutDev)
 
 import Common
 
-routes :: forall cs rq rp.
+routes :: forall cs qs rq rp.
      TVar (M.Map Key Person)
-  -> Route cs rq rp
+  -> Route cs qs rq rp
   -> Rec Identity cs
+  -> Rec Parameter qs
   -> RequestBody Identity rq
   -> TrasaT IO rp
-routes database route captures reqBody = case route of
+routes database route captures querys reqBody = case route of
   AddR -> go handleAddR
   EditR -> go handleEditR
   DeleteR -> go handleDeleteR
   ViewR -> go handleViewR
   ViewAllR -> go handleViewAllR
   where
-  go :: (TVar (M.Map Key Person) -> Arguments cs rq (TrasaT IO rp)) -> TrasaT IO rp
-  go f = handler captures reqBody (f database)
+  go :: (TVar (M.Map Key Person) -> Arguments cs qs rq (TrasaT IO rp)) -> TrasaT IO rp
+  go f = handler captures querys reqBody (f database)
 
 handleAddR :: TVar (M.Map Key Person) -> Person -> TrasaT IO Key
 handleAddR database person = liftIO . atomically $ do
@@ -52,7 +53,7 @@ handleEditR database k person = liftIO . atomically $ do
   m <- readTVar database
   writeTVar database (M.insert k person m)
 
-handleDeleteR :: TVar (M.Map Key Person) -> Key -> TrasaT IO ()
+handleDeleteR :: TVar (M.Map Key Person) -> Key  -> TrasaT IO ()
 handleDeleteR database k = liftIO . atomically $ do
   m <- readTVar database
   writeTVar database (M.delete k m)
@@ -64,10 +65,10 @@ handleViewR database k = do
     Just person -> return person
     Nothing -> throwError (TrasaErr S.status404 "Person not found")
 
-handleViewAllR :: TVar (M.Map Key Person) -> TrasaT IO [Keyed Person]
-handleViewAllR database = liftIO . atomically $ do
+handleViewAllR :: TVar (M.Map Key Person) -> Maybe Int -> TrasaT IO [Keyed Person]
+handleViewAllR database limit = liftIO . atomically $ do
   m <- readTVar database
-  return (fmap (uncurry Keyed) (M.toList m))
+  (return . fmap (uncurry Keyed) . maybe id take limit . M.toList) m
 
 router :: Router Route
 router = routerWith
@@ -77,6 +78,7 @@ router = routerWith
 
 application :: TVar (M.Map Key Person) -> Application
 application database = serve
+  (mapQuerys captureCodecToCaptureDecoding . metaQuery . meta)
   (mapRequestBody (Many . pure . bodyCodecToBodyDecoding) . metaRequestBody . meta)
   (mapResponseBody (Many . pure . bodyCodecToBodyEncoding) . metaResponseBody . meta)
   (routes database)
