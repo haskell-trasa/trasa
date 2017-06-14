@@ -26,6 +26,7 @@ library
   build-depends:
       base >= 4.7 && < 5
     , bytestring == 0.10.*
+    , binary == 0.8.*
     , text == 1.2.*
     , vinyl == 0.5.*
     , http-types == 0.9.*
