@@ -25,7 +25,7 @@ import Test.DocTest (doctest)
 main :: IO ()
 main = do
   putStrLn "\nRUNNING DOCTESTS"
-  doctest 
+  doctest
     [ "src/Trasa/Core.hs"
     , "src/Trasa/Tutorial.hs"
     ]
@@ -47,39 +47,44 @@ properties = testGroup "Properties"
 unitTests :: TestTree
 unitTests = testGroup "Unit Tests"
   [ testCase "link addition route"
-      $ link (prepare AdditionR 12 5) @?= ["add","12","5"]
+      $ link (prepare AdditionR 12 5 (Just 3)) @?= decodeUrl "/add/12/5?more=3"
   , testCase "link left pad route"
-      $ link (prepare LeftPadR 5 "foo") @?= ["pad","left","5"]
+      $ link (prepare LeftPadR 5 "foo") @?= decodeUrl "/pad/left/5"
   , testCase "parse hello route"
-      $ parse ["hello"] Nothing @?= Right (conceal (prepare HelloR))
+      $ parse "/hello" Nothing @?= Right (conceal (prepare HelloR))
   , testCase "parse addition route"
-      $ parse ["add","6","3"] Nothing @?= Right (conceal (prepare AdditionR 6 3))
+      $ parse "/add/6/3"  Nothing @?= Right (conceal (prepare AdditionR 6 3 Nothing))
   ]
 
-data Route :: [Type] -> Bodiedness -> Type -> Type where
-  EmptyR :: Route '[] Bodyless Int
-  HelloR :: Route '[] Bodyless Int
-  AdditionR :: Route '[Int,Int] Bodyless Int
-  IdentityR :: Route '[String] Bodyless String
-  LeftPadR :: Route '[Int] (Body String) String
-  TrickyOneR :: Route '[Int] Bodyless String
-  TrickyTwoR :: Route '[Int,Int] Bodyless String
-  -- PersonR :: Crud PersonId Person Capture as req resp -> Route as req resp
+data Route :: [Type] -> [Param] -> Bodiedness -> Type -> Type where
+  EmptyR :: Route '[] '[] Bodyless Int
+  HelloR :: Route '[] '[] Bodyless Int
+  AdditionR :: Route '[Int,Int] '[Optional Int] Bodyless Int
+  IdentityR :: Route '[String] '[] Bodyless String
+  LeftPadR :: Route '[Int] '[] (Body String) String
+  TrickyOneR :: Route '[Int] '[] Bodyless String
+  TrickyTwoR :: Route '[Int,Int] '[] Bodyless String
 
-prepare :: Route cs rq rp -> Arguments cs rq (Prepared Route rp)
-prepare = prepareWith (metaPath . meta) (metaRequestBody . meta)
+prepare :: Route cs qs rq rp -> Arguments cs qs rq (Prepared Route rp)
+prepare = prepareWith (metaPath . meta) (metaQuery . meta) (metaRequestBody . meta)
 
-link :: Prepared Route rp -> [T.Text]
-link = linkWith (mapPath (CaptureEncoding . captureCodecEncode) . metaPath . meta)
+link :: Prepared Route rp -> Url
+link = linkWith
+  (mapPath (CaptureEncoding . captureCodecEncode) . metaPath . meta)
+  (mapQuerys captureCodecToCaptureEncoding . metaQuery . meta)
 
-parse :: [T.Text] -> Maybe Content -> Either TrasaErr (Concealed Route)
-parse = parseWith
+parse :: T.Text -> Maybe Content -> Either TrasaErr (Concealed Route)
+parse url = parseWith
+  (mapQuerys captureCodecToCaptureDecoding . metaQuery . meta)
   (mapRequestBody (Many . pure . bodyCodecToBodyDecoding) . metaRequestBody . meta)
   router
   "get"
+  path
+  querys
+  where Url path querys = decodeUrl url
 
 allRoutes :: [Constructed Route]
-allRoutes = 
+allRoutes =
   [ Constructed HelloR
   , Constructed AdditionR
   , Constructed IdentityR
@@ -95,35 +100,43 @@ router = routerWith
   (mapPath (CaptureDecoding . captureCodecDecode) . metaPath . meta)
   allRoutes
 
-data Meta ps rq rp = Meta
+data Meta ps qs rq rp = Meta
   { metaPath :: Path CaptureCodec ps
+  , metaQuery :: Rec (Query CaptureCodec) qs
   , metaRequestBody :: RequestBody BodyCodec rq
   , metaResponseBody :: ResponseBody BodyCodec rp
   , metaMethod :: T.Text
   }
 
-meta :: Route ps rq rp -> Meta ps rq rp
+meta :: Route ps qs rq rp -> Meta ps qs rq rp
 meta x = case x of
-  EmptyR -> Meta 
-    (end)
+  EmptyR -> Meta
+    end
+    qend
     bodyless (resp bodyInt) "get"
-  HelloR -> Meta 
+  HelloR -> Meta
     (match "hello" ./ end)
+    qend
     bodyless (resp bodyInt) "get"
-  AdditionR -> Meta 
+  AdditionR -> Meta
     (match "add" ./ capture int ./ capture int ./ end)
+    (optional "more" int .? qend)
     bodyless (resp bodyInt) "get"
   IdentityR -> Meta
     (match "identity" ./ capture string ./ end)
+    qend
     bodyless (resp bodyString) "get"
   LeftPadR -> Meta
     (match "pad" ./ match "left" ./ capture int ./ end)
+    qend
     (body bodyString) (resp bodyString) "get"
   TrickyOneR -> Meta
     (match "tricky" ./ capture int ./ match "one" ./ end)
+    qend
     bodyless (resp bodyString) "get"
   TrickyTwoR -> Meta
     (capture int ./ capture int ./ match "two" ./ end)
+    qend
     bodyless (resp bodyString) "get"
 
 int :: CaptureCodec Int
@@ -147,48 +160,56 @@ bodyInt = BodyCodec (pure "text/plain") (LBSC.pack . show)
                     (note "Could not decode int" . readMaybe . LBSC.unpack)
 
 roundtripLinkParse :: Concealed Route -> Property
-roundtripLinkParse c@(Concealed route captures reqBody) =
-  (case reqBody of 
+roundtripLinkParse c@(Concealed route captures querys reqBody) =
+  (case reqBody of
     RequestBodyPresent _ -> False
     RequestBodyAbsent -> True
   )
   ==>
-  Right c == parse (link (Prepared route captures reqBody)) Nothing
+  Right c == parse (encodeUrl (link (Prepared route captures querys reqBody))) Nothing
 
 -- This instance is defined only so that the test suite can do
 -- its job. It not not neccessary or recommended to write this
 -- instance in production code.
 instance Eq (Concealed Route) where
-  Concealed rt1 ps1 rq1 == Concealed rt2 ps2 rq2 = case (rt1,rt2) of
-    (AdditionR,AdditionR) -> ps1 == ps2 && rq1 == rq2
-    (IdentityR,IdentityR) -> ps1 == ps2 && rq1 == rq2
+  Concealed rt1 ps1 qs1 rq1 == Concealed rt2 ps2 qs2 rq2 = case (rt1,rt2) of
+    (AdditionR,AdditionR) -> ps1 == ps2 && qs1 == qs2 && rq1 == rq2
+    (IdentityR,IdentityR) -> ps1 == ps2 && qs1 == qs2 && rq1 == rq2
     (LeftPadR,LeftPadR) -> case (rq1,rq2) of
-      (RequestBodyPresent a, RequestBodyPresent b) -> ps1 == ps2 && a == b
-    (TrickyOneR,TrickyOneR) -> ps1 == ps2 && rq1 == rq2
-    (TrickyTwoR,TrickyTwoR) -> ps1 == ps2 && rq1 == rq2
-    (HelloR,HelloR) -> ps1 == ps2 && rq1 == rq2
-    (EmptyR,EmptyR) -> ps1 == ps2 && rq1 == rq2
+      (RequestBodyPresent a, RequestBodyPresent b) -> ps1 == ps2 && qs1 == qs2 && a == b
+    (TrickyOneR,TrickyOneR) -> ps1 == ps2 && qs1 == qs2 && rq1 == rq2
+    (TrickyTwoR,TrickyTwoR) -> ps1 == ps2 && qs1 == qs2 && rq1 == rq2
+    (HelloR,HelloR) -> ps1 == ps2 && qs1 == qs2 && rq1 == rq2
+    (EmptyR,EmptyR) -> ps1 == ps2 && qs1 == qs2 && rq1 == rq2
 
 instance Arbitrary (Concealed Route) where
   arbitrary = oneof
-    [ Concealed AdditionR <$> arbitrary <*> arbitrary
-    , Concealed IdentityR <$> arbitrary <*> arbitrary
-    , Concealed LeftPadR <$> arbitrary <*> arbitrary
-    , Concealed TrickyOneR <$> arbitrary <*> arbitrary
-    , Concealed TrickyTwoR <$> arbitrary <*> arbitrary
-    , Concealed HelloR <$> arbitrary <*> arbitrary
-    , Concealed EmptyR <$> arbitrary <*> arbitrary
+    [ Concealed AdditionR <$> arbitrary <*> arbitrary <*> arbitrary
+    , Concealed IdentityR <$> arbitrary <*> arbitrary <*> arbitrary
+    , Concealed LeftPadR <$> arbitrary <*> arbitrary <*> arbitrary
+    , Concealed TrickyOneR <$> arbitrary <*> arbitrary <*> arbitrary
+    , Concealed TrickyTwoR <$> arbitrary <*> arbitrary <*> arbitrary
+    , Concealed HelloR <$> arbitrary <*> arbitrary <*> arbitrary
+    , Concealed EmptyR <$> arbitrary <*> arbitrary <*> arbitrary
     ]
 
 instance Show (Concealed Route) where
-  show (Concealed r a b) = 
-    T.unpack ("/" <> T.intercalate "/" (link (Prepared r a b)))
+  show (Concealed r a q b) = show (link (Prepared r a q b))
 
-instance Arbitrary (Rec f '[]) where
+instance Eq a => Eq (Parameter (Optional a)) where
+  ParameterOptional m1 == ParameterOptional m2 = m1 == m2
+
+instance Arbitrary (Rec Identity '[]) where
   arbitrary = pure RNil
 
 instance (Arbitrary r, Arbitrary (Rec Identity rs)) => Arbitrary (Rec Identity (r ': rs)) where
   arbitrary = (:&) <$> (Identity <$> arbitrary) <*> arbitrary
+
+instance Arbitrary (Rec Parameter '[]) where
+  arbitrary = pure RNil
+
+instance (Arbitrary r, Arbitrary (Rec Parameter rs)) => Arbitrary (Rec Parameter (Optional r ': rs)) where
+  arbitrary = (:&) <$> (ParameterOptional <$> arbitrary) <*> arbitrary
 
 instance Arbitrary (RequestBody f 'Bodyless) where
   arbitrary = pure RequestBodyAbsent
@@ -198,28 +219,3 @@ instance Arbitrary a => Arbitrary (RequestBody Identity (Body a)) where
 
 instance Eq (RequestBody f 'Bodyless) where
   RequestBodyAbsent == RequestBodyAbsent = True
-
--- pieces :: Route cps rq rp -> Path Capture cps
--- pieces x = case x of
---   AdditionR -> match "add" ./ capture int ./ capture int ./ end
---   IdentityR -> match "identity" ./ capture string ./ end
---   LeftPadR -> match "pad" ./ match "left" ./ capture int ./ end
---   PersonR op -> match "person" ./ crudPieces personId op
-
--- crudPieces :: Capture k -> Crud k v Capture cps rq rp -> Path Capture cps
--- crudPieces cap x = case x of
---   AddR -> match "add" ./ end
---   EditR -> match "edit" ./ capture cap ./ end
---   ViewR -> match "view" ./ capture cap ./ end
--- 
--- newtype PersonId = PersonId { getPersonId :: Int }
--- data Person = Person
--- 
--- personId :: Capture PersonId
--- personId = Capture (show . getPersonId) (fmap PersonId . readMaybe)
--- 
--- data Crud :: Type -> Type -> (Type -> Type) -> [Type] -> Bodiedness -> Type -> Type where
---   AddR :: Crud k v cap '[] (Body Person) PersonId
---   EditR :: Crud k v cap '[k] (Body Person) Person
---   ViewR :: Crud k v cap '[k] Bodyless Person
-

@@ -11,6 +11,7 @@ module Trasa.Tutorial
   ) where
 
 import Trasa.Core
+import Data.Vinyl (Rec)
 import Data.Kind (Type)
 import Data.Text (Text)
 
@@ -29,13 +30,14 @@ import Data.Text (Text)
 -- >>> :{
 -- data Counter = Red | Green | Blue
 --   deriving (Show,Read)
--- data Route :: [Type] -> Bodiedness -> Type -> Type where
---   AssignR :: Route '[Counter,Int] 'Bodyless ()
---   IncrementR :: Route '[Counter] 'Bodyless Int
---   QueryR :: Route '[Counter] 'Bodyless Int
---   TotalR :: Route '[] 'Bodyless Int
--- data Meta captures request response = Meta
+-- data Route :: [Type] -> [Param] -> Bodiedness -> Type -> Type where
+--   AssignR :: Route '[Counter,Int] '[] 'Bodyless ()
+--   IncrementR :: Route '[Counter] '[] 'Bodyless Int
+--   QueryR :: Route '[Counter] '[]Bodyless Int
+--   TotalR :: Route '[] '[] 'Bodyless Int
+-- data Meta captures querys request response = Meta
 --   { metaPath :: Path CaptureCodec captures
+--   , metaQuery :: Rec (Query CaptureCodec) querys
 --   , metaRequestBody :: RequestBody BodyCodec request
 --   , metaResponseBody :: ResponseBody BodyCodec response
 --   , metaMethod :: Text
@@ -48,19 +50,23 @@ import Data.Text (Text)
 -- bodyUnit = BodyCodec (pure "text/plain") (const "") (const (Right ()))
 -- bodyInt :: BodyCodec Int
 -- bodyInt = showReadBodyCodec
--- meta :: Route captures request response -> Meta captures request response
+-- meta :: Route captures querys request response -> Meta captures querys request response
 -- meta x = case x of
 --   AssignR -> Meta
 --     (match "assign" ./ capture counter ./ match "to" ./ capture int ./ end)
+--     qend
 --     bodyless (resp bodyUnit) "post"
 --   IncrementR -> Meta
 --     (match "increment" ./ capture counter ./ end)
+--     qend
 --     bodyless (resp bodyInt) "post"
 --   QueryR -> Meta
 --     (match "query" ./ capture counter ./ end)
+--     qend
 --     bodyless (resp bodyInt) "get"
 --   TotalR -> Meta
 --     (match "total" ./ end)
+--     qend
 --     bodyless (resp bodyInt) "get"
 -- :}
 --
@@ -68,18 +74,22 @@ import Data.Text (Text)
 -- @trasa@ exports and partially apply them to the route metadata that
 -- we have created. We can start with prepare and link:
 --
--- >>> prepare = prepareWith (metaPath . meta) (metaRequestBody . meta)
+-- >>> prepare = prepareWith (metaPath . meta) (metaQuery . meta) (metaRequestBody . meta)
 -- >>> :t prepare
 -- prepare
---   :: Route captures request response
---      -> Arguments captures request (Prepared Route response)
--- >>> link = linkWith (mapPath (CaptureEncoding . captureCodecEncode) . metaPath . meta)
+--   :: Route captures query request response
+--      -> Arguments captures query request (Prepared Route response)
+-- >>> :{
+-- link = linkWith (mapPath captureCodecToCaptureEncoding . metaPath . meta)
+--                 (mapQuerys captureCodecToCaptureEncoding . metaQuery . meta)
+-- :}
+--
 -- >>> :t link
--- link :: Prepared Route response -> [Text]
+-- link :: Prepared Route response -> Url
 --
 -- Now we can use link to encode our routes:
 --
 -- >>> link (prepare AssignR Green 5)
--- ["assign","Green","to","5"]
+-- "/assign/Green/to/5"
 --
 --

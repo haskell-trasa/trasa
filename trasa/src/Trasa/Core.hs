@@ -20,6 +20,7 @@ module Trasa.Core
   , RequestBody(..)
   , Param(..)
   , Query(..)
+  , Parameter(..)
   , BodyCodec(..)
   , BodyDecoding(..)
   , BodyEncoding(..)
@@ -29,7 +30,7 @@ module Trasa.Core
   , CaptureDecoding(..)
   , Content(..)
   , QueryString(..)
-  , Link(..)
+  , Url(..)
   , Payload(..)
   , TrasaErr(..)
   , Router
@@ -37,6 +38,9 @@ module Trasa.Core
   , Prepared(..)
   , Concealed(..)
   , Constructed(..)
+  -- * Url
+  , encodeUrl
+  , decodeUrl
   -- * Using Routes
   , prepareWith
   , dispatchWith
@@ -62,6 +66,9 @@ module Trasa.Core
   , flag
   , optional
   , list
+  , qend
+  , (.?)
+  , mapQuerys
   -- * Converting Route Metadata
   , mapPath
   , mapMany
@@ -91,6 +98,7 @@ import Data.Kind (Type)
 import Data.Functor.Identity (Identity(..))
 import Control.Applicative (liftA2)
 import Data.Maybe (mapMaybe,listToMaybe,isJust)
+import Data.Semigroup (Semigroup(..))
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List as L
 import qualified Data.List.NonEmpty as NE
@@ -107,7 +115,7 @@ import qualified Network.HTTP.Types.Status as N
 import qualified Network.HTTP.Types.URI as N
 import qualified Data.HashMap.Strict as HM
 import Data.HashMap.Strict (HashMap)
-import Data.Vinyl (Rec(..))
+import Data.Vinyl (Rec(..),rmap)
 import Data.Vinyl.TypeLevel (type (++))
 
 -- $setup
@@ -197,10 +205,19 @@ data QueryParam
   = QueryParamFlag
   | QueryParamSingle T.Text
   | QueryParamList [T.Text]
+  deriving Eq
+
+instance Semigroup QueryParam where
+  QueryParamFlag <> q = q
+  q <> QueryParamFlag = q
+  QueryParamSingle q1 <> QueryParamSingle q2 = QueryParamList [q1,q2]
+  QueryParamSingle q1 <> QueryParamList l1 = QueryParamList (q1:l1)
+  QueryParamList l1 <> QueryParamSingle q1 = QueryParamList (l1 ++ [q1]) -- Change list to a set
+  QueryParamList l1 <> QueryParamList l2 = QueryParamList (l1 ++ l2)
 
 newtype QueryString = QueryString
   { unQueryString :: HM.HashMap T.Text QueryParam
-  }
+  } deriving Eq
 
 infixr 7 ./
 
@@ -234,6 +251,20 @@ optional = QueryOptional
 list :: T.Text -> cpf query -> Query cpf (List query)
 list = QueryList
 
+qend :: Rec (Query qpf) '[]
+qend = RNil
+
+infixr 7 .?
+
+(.?) :: Query qpf q -> Rec (Query qpf) qs -> Rec (Query qpf) (q ': qs)
+(.?) = (:&)
+
+mapQuerys :: (forall x. f x -> g x) -> Rec (Query f) qs -> Rec (Query g) qs
+mapQuerys eta = rmap $ \case
+  QueryFlag key -> QueryFlag key
+  QueryOptional key query -> QueryOptional key (eta query)
+  QueryList key query -> QueryList key (eta query)
+
 data CaptureCodec a = CaptureCodec
   { captureCodecEncode :: a -> T.Text
   , captureCodecDecode :: T.Text -> Maybe a
@@ -248,21 +279,25 @@ captureCodecToCaptureEncoding (CaptureCodec enc _) = CaptureEncoding enc
 captureCodecToCaptureDecoding :: CaptureCodec a -> CaptureDecoding a
 captureCodecToCaptureDecoding (CaptureCodec _ dec) = CaptureDecoding dec
 
-data Link = Link
-  { linkPath :: ![T.Text]
-  , linkQueryString :: !QueryString }
+data Url = Url
+  { urlPath :: ![T.Text]
+  , urlQueryString :: !QueryString
+  } deriving Eq
 
-instance Show Link where
-  show = T.unpack . encodeUrl
+instance Show Url where
+  show = show . encodeUrl
 
-encodeUrl :: Link -> T.Text
-encodeUrl (Link path (QueryString querys)) =
+encodeUrl :: Url -> T.Text
+encodeUrl (Url path (QueryString querys)) =
   ( T.decodeUtf8
   . LBS.toStrict
   . LBS.toLazyByteString
-  . N.encodePath path
+  . encode
   . HM.foldrWithKey (\key param items -> toQueryItem key param ++ items) []) querys
   where
+    encode qs = case path of
+      [] -> "/" <> N.encodePath path qs
+      _  -> N.encodePath path qs
     toQueryItem :: T.Text -> QueryParam -> [N.QueryItem]
     toQueryItem key = \case
       QueryParamFlag -> [(T.encodeUtf8 key, Nothing)]
@@ -270,11 +305,21 @@ encodeUrl (Link path (QueryString querys)) =
       QueryParamList values ->
         flip fmap values $ \value -> (T.encodeUtf8 key, Just (T.encodeUtf8 value))
 
+decodeUrl :: T.Text -> Url
+decodeUrl txt = Url path (QueryString qString)
+  where
+    (path,querys) = N.decodePath (T.encodeUtf8 txt)
+    qString = HM.fromListWith (<>) (fmap decodeQuery querys)
+    decodeQuery (key,mval) = case mval of
+      Nothing  -> (tkey,QueryParamFlag)
+      Just val -> (tkey,QueryParamSingle (T.decodeUtf8 val))
+      where tkey = T.decodeUtf8 key
+
 linkWith :: forall route response.
      (forall caps qrys req resp. route caps qrys req resp -> Path CaptureEncoding caps)
   -> (forall caps qrys req resp. route caps qrys req resp -> Rec (Query CaptureEncoding) qrys)
   -> Prepared route response
-  -> Link
+  -> Url
 linkWith toCapEncs toQuerys (Prepared route captures querys _) =
   encodePieces (toCapEncs route) (toQuerys route) captures querys
 -- We should probably go ahead and just URL encode the path
@@ -297,7 +342,7 @@ payloadWith :: forall route response.
 payloadWith toCapEncs toQuerys toReqBody toRespBody p@(Prepared route _ _ reqBody) =
   Payload path query content accepts
   where
-    Link path query = linkWith toCapEncs toQuerys p
+    Url path query = linkWith toCapEncs toQuerys p
     content = encodeRequestBody (toReqBody route) reqBody
     ResponseBody (Many decodings) = toRespBody route
     accepts = bodyDecodingNames =<< decodings
@@ -314,7 +359,7 @@ requestWith :: Functor m
   -> m (Maybe response)
 requestWith toMethod toCapEncs toQuerys toReqBody toRespBody run (Prepared route captures querys reqBody) =
   let method = toMethod route
-      Link encodedPath encodedQuerys = encodePieces (toCapEncs route) (toQuerys route) captures querys
+      Url encodedPath encodedQuerys = encodePieces (toCapEncs route) (toQuerys route) captures querys
       content = encodeRequestBody (toReqBody route) reqBody
       respBodyDecs = toRespBody route
       ResponseBody (Many decodings) = respBodyDecs
@@ -339,9 +384,9 @@ encodePieces
   -> Rec (Query CaptureEncoding) querys
   -> Rec Identity captures
   -> Rec Parameter querys
-  -> Link
+  -> Url
 encodePieces pathEncoding queryEncoding path querys =
-  Link (encodePath pathEncoding path) (QueryString (encodeQuerys queryEncoding querys))
+  Url (encodePath pathEncoding path) (QueryString (encodeQuerys queryEncoding querys))
   where
     encodePath
       :: forall caps
@@ -520,9 +565,9 @@ demoteParameter = \case
 --   need to write out 'Record' and 'RequestBody' values by hand, which
 --   is tedious.
 --
---   >>> :kind! Arguments '[Int,Bool] '[Flag,Optional String,List Int] 'Bodyless Double
---   Arguments '[Int,Bool] '[Flag,Optional String,List Int] 'Bodyless Double :: *
---   = Int -> Bool -> Bool -> Maybe String -> [Int] -> Double
+--   >>> :kind! Arguments '[Int,Bool] '[Flag,Optional Double,List Int] 'Bodyless Double
+--   Arguments '[Int,Bool] '[Flag,Optional Double,List Int] 'Bodyless Double :: *
+--   = Int -> Bool -> Bool -> Maybe Double -> [Int] -> Double
 type family Arguments (pieces :: [Type]) (querys :: [Param]) (body :: Bodiedness) (result :: Type) :: Type where
   Arguments '[] '[] ('Body b) r = b -> r
   Arguments '[] '[] 'Bodyless r = r
