@@ -40,6 +40,7 @@ module Trasa.Core
   , Constructed(..)
   -- * Url
   , encodeUrl
+  , decodeQuery
   , decodeUrl
   -- * Using Routes
   , prepareWith
@@ -67,7 +68,7 @@ module Trasa.Core
   , optional
   , list
   , qend
-  , (.?)
+  , (.&)
   , mapQuerys
   -- * Converting Route Metadata
   , mapPath
@@ -254,10 +255,10 @@ list = QueryList
 qend :: Rec (Query qpf) '[]
 qend = RNil
 
-infixr 7 .?
+infixr 7 .&
 
-(.?) :: Query qpf q -> Rec (Query qpf) qs -> Rec (Query qpf) (q ': qs)
-(.?) = (:&)
+(.&) :: Query qpf q -> Rec (Query qpf) qs -> Rec (Query qpf) (q ': qs)
+(.&) = (:&)
 
 mapQuerys :: (forall x. f x -> g x) -> Rec (Query f) qs -> Rec (Query g) qs
 mapQuerys eta = rmap $ \case
@@ -305,15 +306,17 @@ encodeUrl (Url path (QueryString querys)) =
       QueryParamList values ->
         flip fmap values $ \value -> (T.encodeUtf8 key, Just (T.encodeUtf8 value))
 
-decodeUrl :: T.Text -> Url
-decodeUrl txt = Url path (QueryString qString)
+decodeQuery :: N.Query -> QueryString
+decodeQuery = QueryString . HM.fromListWith (<>) . fmap decode
   where
-    (path,querys) = N.decodePath (T.encodeUtf8 txt)
-    qString = HM.fromListWith (<>) (fmap decodeQuery querys)
-    decodeQuery (key,mval) = case mval of
+    decode (key,mval) = case mval of
       Nothing  -> (tkey,QueryParamFlag)
       Just val -> (tkey,QueryParamSingle (T.decodeUtf8 val))
       where tkey = T.decodeUtf8 key
+
+decodeUrl :: T.Text -> Url
+decodeUrl txt = Url path (decodeQuery querys)
+  where (path,querys) = N.decodePath (T.encodeUtf8 txt)
 
 linkWith :: forall route response.
      (forall caps qrys req resp. route caps qrys req resp -> Path CaptureEncoding caps)
@@ -353,18 +356,18 @@ requestWith :: Functor m
   -> (forall caps querys req resp. route caps querys req resp -> Rec (Query CaptureEncoding) querys)
   -> (forall caps querys req resp. route caps querys req resp -> RequestBody (Many BodyEncoding) req)
   -> (forall caps querys req resp. route caps querys req resp -> ResponseBody (Many BodyDecoding) resp)
-  -> (T.Text -> [T.Text] -> QueryString -> Maybe Content -> [T.Text] -> m Content)
-     -- ^ method, path pieces, content, accepts -> response
+  -> (T.Text -> Url -> Maybe Content -> [T.Text] -> m Content)
+     -- ^ method, url, content, accepts -> response
   -> Prepared route response
   -> m (Maybe response)
 requestWith toMethod toCapEncs toQuerys toReqBody toRespBody run (Prepared route captures querys reqBody) =
   let method = toMethod route
-      Url encodedPath encodedQuerys = encodePieces (toCapEncs route) (toQuerys route) captures querys
+      url = encodePieces (toCapEncs route) (toQuerys route) captures querys
       content = encodeRequestBody (toReqBody route) reqBody
       respBodyDecs = toRespBody route
       ResponseBody (Many decodings) = respBodyDecs
       accepts = toList (bodyDecodingNames =<< decodings)
-   in fmap (decodeResponseBody respBodyDecs) (run method encodedPath encodedQuerys content accepts)
+   in fmap (decodeResponseBody respBodyDecs) (run method url content accepts)
 
 encodeRequestBody :: RequestBody (Many BodyEncoding) request -> RequestBody Identity request -> Maybe Content
 encodeRequestBody RequestBodyAbsent RequestBodyAbsent = Nothing
@@ -428,14 +431,13 @@ dispatchWith :: forall route m.
   -> Router route -- ^ Router
   -> T.Text -- ^ Method
   -> [T.Text] -- ^ Accept headers
-  -> [T.Text] -- ^ Path Pieces
-  -> QueryString -- ^ Query String
+  -> Url -- ^ Everything after the authority
   -> Maybe Content -- ^ Content type and request body
   -> m (Either TrasaErr Content) -- ^ Encoded response
-dispatchWith toQuerys toReqBody toRespBody makeResponse router method accepts encodedPath encodedQuerys mcontent =
+dispatchWith toQuerys toReqBody toRespBody makeResponse router method accepts url mcontent =
   sequenceA $ do
     Concealed route decodedPathPieces decodedQuerys decodedRequestBody <-
-      parseWith toQuerys toReqBody router method encodedPath encodedQuerys mcontent
+      parseWith toQuerys toReqBody router method url mcontent
     let response = makeResponse route decodedPathPieces decodedQuerys decodedRequestBody
         ResponseBody (Many encodings) = toRespBody route
     (encode,typ) <- mapFindE (status N.status406)
@@ -462,11 +464,10 @@ parseWith :: forall route.
   -> (forall caps qrys req resp. route caps qrys req resp -> RequestBody (Many BodyDecoding) req)
   -> Router route -- ^ Router
   -> T.Text -- ^ Request Method
-  -> [T.Text] -- ^ Path Pieces
-  -> QueryString -- ^ Query String everything after the question mark
+  -> Url -- ^ Everything after the authority
   -> Maybe Content -- ^ Request content type and body
   -> Either TrasaErr (Concealed route)
-parseWith toQuerys toReqBody router method encodedPath encodedQuery mcontent = do
+parseWith toQuerys toReqBody router method (Url encodedPath encodedQuery) mcontent = do
   Pathed route captures <- maybe (Left (status N.status404)) Right
     $ parsePathWith router method encodedPath
   querys <- parseQueryWith (toQuerys route) encodedQuery

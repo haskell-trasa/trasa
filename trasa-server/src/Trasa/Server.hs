@@ -59,12 +59,18 @@ runTrasaT
 runTrasaT trasa headers = (flip runReaderT headers . flip runStateT M.empty . runExceptT  . unTrasaT) trasa
 
 serve
-  :: (forall cs' rq' rp'. rt cs' rq' rp' -> RequestBody (Many BodyDecoding) rq')
-  -> (forall cs' rq' rp'. rt cs' rq' rp' -> ResponseBody (Many BodyEncoding) rp')
-  -> (forall cs' rq' rp'. rt cs' rq' rp' -> Rec Identity cs' -> RequestBody Identity rq' -> TrasaT IO rp')
-  -> Router rt -- ^ Router
+  :: (forall caps qrys req resp. route caps qrys req resp -> Rec (Query CaptureDecoding) qrys)
+  -> (forall caps qrys req resp. route caps qrys req resp -> RequestBody (Many BodyDecoding) req)
+  -> (forall caps qrys req resp. route caps qrys req resp -> ResponseBody (Many BodyEncoding) resp)
+  -> (forall caps qrys req resp.
+         route caps qrys req resp
+      -> Rec Identity caps
+      -> Rec Parameter qrys
+      -> RequestBody Identity req
+      -> TrasaT IO resp)
+  -> Router route -- ^ Router
   -> WAI.Application -- ^ WAI Application
-serve toReqBody toRespBody makeResponse router =
+serve toQuerys toReqBody toRespBody makeResponse router =
   \req respond ->
     case TE.decodeUtf8' (WAI.requestMethod req) of
       Left _ -> respond (WAI.responseLBS S.status400 [] "Non utf8 encoded request method")
@@ -75,8 +81,8 @@ serve toReqBody toRespBody makeResponse router =
           Just accepts -> do
             content <- for (M.lookup hContentType headers) $ \typ ->
               Content typ <$> WAI.strictRequestBody req
-            let path = WAI.pathInfo req
-                dispatch = dispatchWith toReqBody toRespBody makeResponse router method accepts path content
+            let url = Url (WAI.pathInfo req) (decodeQuery (WAI.queryString req))
+                dispatch = dispatchWith toQuerys toReqBody toRespBody makeResponse router method accepts url content
             runTrasaT dispatch headers >>= \case
               (resErr,newHeaders) -> case join resErr of
                 Left (TrasaErr stat errBody) ->

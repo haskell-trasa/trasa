@@ -79,9 +79,7 @@ parse url = parseWith
   (mapRequestBody (Many . pure . bodyCodecToBodyDecoding) . metaRequestBody . meta)
   router
   "get"
-  path
-  querys
-  where Url path querys = decodeUrl url
+  (decodeUrl url)
 
 allRoutes :: [Constructed Route]
 allRoutes =
@@ -120,7 +118,7 @@ meta x = case x of
     bodyless (resp bodyInt) "get"
   AdditionR -> Meta
     (match "add" ./ capture int ./ capture int ./ end)
-    (optional "more" int .? qend)
+    (optional "more" int .& qend)
     bodyless (resp bodyInt) "get"
   IdentityR -> Meta
     (match "identity" ./ capture string ./ end)
