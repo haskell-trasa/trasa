@@ -64,6 +64,7 @@ module Trasa.Core
   -- ** Response Body
   , resp
   -- ** Query
+  , demoteParameter
   , flag
   , optional
   , list
@@ -84,6 +85,7 @@ module Trasa.Core
   -- * Errors
   , status
   -- * Argument Currying
+  , ParamBase
   , Arguments
   -- * Random Stuff
   , conceal
@@ -329,8 +331,7 @@ linkWith toCapEncs toQuerys (Prepared route captures querys _) =
 -- when someone calls linkWith.
 
 data Payload = Payload
-  { payloadPant :: ![T.Text]
-  , payloadQueryString :: !QueryString
+  { payloadUrl :: !Url
   , payloadContent :: !(Maybe Content)
   , payloadAccepts :: !(NonEmpty T.Text)
   }
@@ -343,9 +344,9 @@ payloadWith :: forall route response.
   -> Prepared route response
   -> Payload
 payloadWith toCapEncs toQuerys toReqBody toRespBody p@(Prepared route _ _ reqBody) =
-  Payload path query content accepts
+  Payload url content accepts
   where
-    Url path query = linkWith toCapEncs toQuerys p
+    url = linkWith toCapEncs toQuerys p
     content = encodeRequestBody (toReqBody route) reqBody
     ResponseBody (Many decodings) = toRespBody route
     accepts = bodyDecodingNames =<< decodings
@@ -549,12 +550,12 @@ decodeCaptureVector (IxedRecCons (CaptureDecoding decode) rnext) (VecCons piece 
   vals <- decodeCaptureVector rnext vnext
   return (Identity val :& vals)
 
-type family QueryType (param :: Param) :: Type where
-  QueryType Flag = Bool
-  QueryType (Optional a) = Maybe a
-  QueryType (List a) = [a]
+type family ParamBase (param :: Param) :: Type where
+  ParamBase Flag = Bool
+  ParamBase (Optional a) = Maybe a
+  ParamBase (List a) = [a]
 
-demoteParameter :: Parameter param -> QueryType param
+demoteParameter :: Parameter param -> ParamBase param
 demoteParameter = \case
   ParameterFlag b -> b
   ParameterOptional m -> m
@@ -572,7 +573,7 @@ demoteParameter = \case
 type family Arguments (pieces :: [Type]) (querys :: [Param]) (body :: Bodiedness) (result :: Type) :: Type where
   Arguments '[] '[] ('Body b) r = b -> r
   Arguments '[] '[] 'Bodyless r = r
-  Arguments '[] (q ': qs) r b = QueryType q -> Arguments '[] qs r b
+  Arguments '[] (q ': qs) r b = ParamBase q -> Arguments '[] qs r b
   Arguments (c ': cs) qs b r = c -> Arguments cs qs b r
 
 prepareWith ::
@@ -609,7 +610,7 @@ prepareExplicit route = go (Prepared route)
     go k pnext qs b
   go k (PathConsCapture _ pnext) qs b =
     \c -> go (\caps querys reqBod -> k (Identity c :& caps) querys reqBod) pnext qs b
-  parameter :: forall param. Query qf param -> QueryType param -> Parameter param
+  parameter :: forall param. Query qf param -> ParamBase param -> Parameter param
   parameter (QueryFlag _) b = ParameterFlag b
   parameter (QueryOptional _ _) m = ParameterOptional m
   parameter (QueryList _ _) l = ParameterList l
