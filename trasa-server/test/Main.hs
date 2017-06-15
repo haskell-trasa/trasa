@@ -29,10 +29,10 @@ main = do
   withApplication (return app) $ \port -> do
     manager <- HC.newManager HC.defaultManagerSettings
     attempt manager ("GET http://127.0.0.1:" ++ show port ++ "/") $ \x -> x
-      { HC.requestHeaders = [("Accept","text/plain")]
+      { HC.requestHeaders = [("Accept","text/plain"),("ContentType","text/plain")]
       }
     attempt manager ("GET http://127.0.0.1:" ++ show port ++ "/hello") $ \x -> x
-      { HC.requestHeaders = [("Accept","text/plain")]
+      { HC.requestHeaders = [("Accept","text/plain"),("ContentType","text/plain")]
       }
     return ()
 
@@ -71,7 +71,7 @@ parse url = parseWith
   (mapQuerys captureCodecToCaptureDecoding . metaQuery . meta)
   (mapRequestBody (Many . pure . bodyCodecToBodyDecoding) . metaRequestBody . meta)
   router
-  "get"
+  "GET"
   (decodeUrl url)
 
 allRoutes :: [Constructed Route]
@@ -104,31 +104,31 @@ meta x = case x of
   EmptyR -> Meta
     end
     qend
-    bodyless (resp bodyInt) "get"
+    bodyless (resp bodyInt) "GET"
   HelloR -> Meta
     (match "hello" ./ end)
     qend
-    bodyless (resp bodyInt) "get"
+    bodyless (resp bodyInt) "GET"
   AdditionR -> Meta
     (match "add" ./ capture int ./ capture int ./ end)
     (optional "more" int .& qend)
-    bodyless (resp bodyInt) "get"
+    bodyless (resp bodyInt) "GET"
   IdentityR -> Meta
     (match "identity" ./ capture string ./ end)
     qend
-    bodyless (resp bodyString) "get"
+    bodyless (resp bodyString) "GET"
   LeftPadR -> Meta
     (match "pad" ./ match "left" ./ capture int ./ end)
     qend
-    (body bodyString) (resp bodyString) "get"
+    (body bodyString) (resp bodyString) "GET"
   TrickyOneR -> Meta
     (match "tricky" ./ capture int ./ match "one" ./ end)
     qend
-    bodyless (resp bodyString) "get"
+    bodyless (resp bodyString) "GET"
   TrickyTwoR -> Meta
     (capture int ./ capture int ./ match "two" ./ end)
     qend
-    bodyless (resp bodyString) "get"
+    bodyless (resp bodyString) "GET"
 
 
 int :: CaptureCodec Int
