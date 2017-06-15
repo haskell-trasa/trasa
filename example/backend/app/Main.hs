@@ -77,10 +77,10 @@ router = routerWith
   allRoutes
 
 application :: TVar (M.Map Key Person) -> Application
-application database = serve
-  (mapQuerys captureCodecToCaptureDecoding . metaQuery . meta)
-  (mapRequestBody (Many . pure . bodyCodecToBodyDecoding) . metaRequestBody . meta)
-  (mapResponseBody (Many . pure . bodyCodecToBodyEncoding) . metaResponseBody . meta)
+application database = serveWith
+  (mapQuery captureCodecToCaptureDecoding . metaQuery . meta)
+  (mapRequestBody (one . bodyCodecToBodyDecoding) . metaRequestBody . meta)
+  (mapResponseBody (one . bodyCodecToBodyEncoding) . metaResponseBody . meta)
   (routes database)
   router
 

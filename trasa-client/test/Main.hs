@@ -78,13 +78,13 @@ prepare = prepareWith (metaPath . meta) (metaQuery . meta) (metaRequestBody . me
 link :: Prepared Route resp -> Url
 link = linkWith
   (mapPath captureCodecToCaptureEncoding . metaPath . meta)
-  (mapQuerys captureCodecToCaptureEncoding . metaQuery . meta)
+  (mapQuery captureCodecToCaptureEncoding . metaQuery . meta)
 
 client :: Config -> Prepared Route resp -> IO (Either TrasaErr resp)
 client = clientWith
   (metaMethod . meta)
   (mapPath captureCodecToCaptureEncoding . metaPath . meta)
-  (mapQuerys captureCodecToCaptureEncoding . metaQuery . meta)
+  (mapQuery captureCodecToCaptureEncoding . metaQuery . meta)
   (mapRequestBody (Many . pure . bodyCodecToBodyEncoding) . metaRequestBody . meta)
   (mapResponseBody (Many . pure . bodyCodecToBodyDecoding) . metaResponseBody . meta)
 

@@ -81,7 +81,7 @@ import Data.Text (Text)
 --      -> Arguments captures query request (Prepared Route response)
 -- >>> :{
 -- link = linkWith (mapPath captureCodecToCaptureEncoding . metaPath . meta)
---                 (mapQuerys captureCodecToCaptureEncoding . metaQuery . meta)
+--                 (mapQuery captureCodecToCaptureEncoding . metaQuery . meta)
 -- :}
 --
 -- >>> :t link

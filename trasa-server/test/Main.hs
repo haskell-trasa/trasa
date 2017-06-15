@@ -20,8 +20,8 @@ import qualified Network.HTTP.Client as HC
 main :: IO ()
 main = do
   putStrLn "\nStarting trasa server test suite"
-  let app = serve
-        (mapQuerys captureCodecToCaptureDecoding . metaQuery . meta)
+  let app = serveWith
+        (mapQuery captureCodecToCaptureDecoding . metaQuery . meta)
         (mapRequestBody (Many . pure . bodyCodecToBodyDecoding) . metaRequestBody . meta)
         (mapResponseBody (Many . pure . bodyCodecToBodyEncoding) . metaResponseBody . meta)
         handle
@@ -64,11 +64,11 @@ prepare = prepareWith (metaPath . meta) (metaQuery . meta) (metaRequestBody . me
 link :: Prepared Route rp -> Url
 link = linkWith
   (mapPath (CaptureEncoding . captureCodecEncode) . metaPath . meta)
-  (mapQuerys captureCodecToCaptureEncoding . metaQuery . meta)
+  (mapQuery captureCodecToCaptureEncoding . metaQuery . meta)
 
 parse :: T.Text -> Maybe Content -> Either TrasaErr (Concealed Route)
 parse url = parseWith
-  (mapQuerys captureCodecToCaptureDecoding . metaQuery . meta)
+  (mapQuery captureCodecToCaptureDecoding . metaQuery . meta)
   (mapRequestBody (Many . pure . bodyCodecToBodyDecoding) . metaRequestBody . meta)
   router
   "GET"

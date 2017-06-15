@@ -1,10 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
+{-# OPTIONS_GHC -Wall -Werror #-}
 module Trasa.Client
-  ( Scheme(..)
+  (
+  -- * Types
+    Scheme(..)
   , Authority(..)
   , Config(..)
+  -- * Requests
   , clientWith
   )where
 
@@ -23,8 +27,9 @@ import qualified Network.HTTP.Types.Header as N
 import qualified Network.HTTP.Types.Status as N
 import qualified Network.HTTP.Client as N
 
-import Trasa.Core
+import Trasa.Core hiding (status,body)
 
+-- | If you select Https you need to pass in a tls manager in config or tls wont actually happen
 data Scheme = Http | Https
 
 schemeToSecure :: Scheme -> Bool
@@ -68,12 +73,18 @@ data Config = Config
 
 clientWith :: forall route response.
      (forall caps qrys req resp. route caps qrys req resp -> T.Text)
+  -- ^ Get the method out of the route
   -> (forall caps qrys req resp. route caps qrys req resp -> Path CaptureEncoding caps)
+  -- ^ Get a way to encode paths from a route
   -> (forall caps qrys req resp. route caps qrys req resp -> Rec (Query CaptureEncoding) qrys)
+  -- ^ Get a way to encode query params from a route
   -> (forall caps qrys req resp. route caps qrys req resp -> RequestBody (Many BodyEncoding) req)
+  -- ^ Get a way to encode request bodies from a route
   -> (forall caps qrys req resp. route caps qrys req resp -> ResponseBody (Many BodyDecoding) resp)
+  -- ^ Get a way to encode response bodies from a route
   -> Config
   -> Prepared route response
+  -- ^ Which endpoint to request
   -> IO (Either TrasaErr response)
 clientWith toMethod toCapEnc toQuerys toReqBody toRespBody config =
   requestWith toMethod toCapEnc toQuerys toReqBody toRespBody run

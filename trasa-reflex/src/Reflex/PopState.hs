@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# OPTIONS_GHC -Wall -Werror #-}
-module Reflex.PopState (url,decodeUrl,encodeUrl) where
+module Reflex.PopState (url) where
 
 import qualified Data.Text as T
 import Reflex.Class (Reflex(..),MonadHold(..),ffor)
@@ -25,6 +25,7 @@ getPopState = do
     locStr <- getPathname loc
     (return . decodeUrl) locStr
 
+-- | The starting location and a stream of popstate urls
 url :: (MonadHold t m, TriggerEvent t m, PerformEvent t m, MonadJSM (Performable m), MonadJSM m) =>
   Event t Url -> m (Url, Event t Url)
 url us = do

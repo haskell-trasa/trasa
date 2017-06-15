@@ -83,4 +83,4 @@ prepare = prepareWith (metaPath . meta) (metaQuery . meta) (metaRequestBody . me
 link :: Prepared Route rp -> Url
 link =
   linkWith (mapPath captureCodecToCaptureEncoding . metaPath . meta)
-           (mapQuerys captureCodecToCaptureEncoding . metaQuery . meta)
+           (mapQuery captureCodecToCaptureEncoding . metaQuery . meta)

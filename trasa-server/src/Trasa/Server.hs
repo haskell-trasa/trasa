@@ -14,7 +14,7 @@
 module Trasa.Server
   ( TrasaT
   , runTrasaT
-  , serve
+  , serveWith
   ) where
 
 import Control.Monad (join)
@@ -57,19 +57,23 @@ runTrasaT
   -> m (Either TrasaErr a, M.Map (CI BS.ByteString) T.Text)
 runTrasaT trasa headers = (flip runReaderT headers . flip runStateT M.empty . runExceptT  . unTrasaT) trasa
 
-serve
+serveWith
   :: (forall caps qrys req resp. route caps qrys req resp -> Rec (Query CaptureDecoding) qrys)
+  -- ^ How to decode the query parameters from a route
   -> (forall caps qrys req resp. route caps qrys req resp -> RequestBody (Many BodyDecoding) req)
+  -- ^ How to decode the request body from a route
   -> (forall caps qrys req resp. route caps qrys req resp -> ResponseBody (Many BodyEncoding) resp)
+  -- ^ How to encode the response body from a route
   -> (forall caps qrys req resp.
          route caps qrys req resp
       -> Rec Identity caps
       -> Rec Parameter qrys
       -> RequestBody Identity req
       -> TrasaT IO resp)
+  -- ^ Actions to perform when requests come in
   -> Router route -- ^ Router
   -> WAI.Application -- ^ WAI Application
-serve toQuerys toReqBody toRespBody makeResponse router =
+serveWith toQuerys toReqBody toRespBody makeResponse router =
   \req respond ->
     case TE.decodeUtf8' (WAI.requestMethod req) of
       Left _ -> respond (WAI.responseLBS S.status400 [] "Non utf8 encoded request method")
