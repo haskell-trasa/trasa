@@ -39,6 +39,7 @@ module Trasa.Core
   , Concealed(..)
   , Constructed(..)
   -- * Url
+  , encodeQuery
   , encodeUrl
   , decodeQuery
   , decodeUrl
@@ -290,23 +291,27 @@ data Url = Url
 instance Show Url where
   show = show . encodeUrl
 
-encodeUrl :: Url -> T.Text
-encodeUrl (Url path (QueryString querys)) =
-  ( T.decodeUtf8
-  . LBS.toStrict
-  . LBS.toLazyByteString
-  . encode
-  . HM.foldrWithKey (\key param items -> toQueryItem key param ++ items) []) querys
+encodeQuery :: QueryString -> N.Query
+encodeQuery = HM.foldrWithKey (\key param items -> toQueryItem key param ++ items) [] . unQueryString
   where
-    encode qs = case path of
-      [] -> "/" <> N.encodePath path qs
-      _  -> N.encodePath path qs
-    toQueryItem :: T.Text -> QueryParam -> [N.QueryItem]
+    toQueryItem :: T.Text -> QueryParam -> N.Query
     toQueryItem key = \case
       QueryParamFlag -> [(T.encodeUtf8 key, Nothing)]
       QueryParamSingle value -> [(T.encodeUtf8 key, Just (T.encodeUtf8 value))]
       QueryParamList values ->
         flip fmap values $ \value -> (T.encodeUtf8 key, Just (T.encodeUtf8 value))
+
+encodeUrl :: Url -> T.Text
+encodeUrl (Url path querys) =
+  ( T.decodeUtf8
+  . LBS.toStrict
+  . LBS.toLazyByteString
+  . encode
+  . encodeQuery ) querys
+  where
+    encode qs = case path of
+      [] -> "/" <> N.encodePath path qs
+      _  -> N.encodePath path qs
 
 decodeQuery :: N.Query -> QueryString
 decodeQuery = QueryString . HM.fromListWith (<>) . fmap decode
@@ -357,10 +362,10 @@ requestWith :: Functor m
   -> (forall caps querys req resp. route caps querys req resp -> Rec (Query CaptureEncoding) querys)
   -> (forall caps querys req resp. route caps querys req resp -> RequestBody (Many BodyEncoding) req)
   -> (forall caps querys req resp. route caps querys req resp -> ResponseBody (Many BodyDecoding) resp)
-  -> (T.Text -> Url -> Maybe Content -> [T.Text] -> m Content)
+  -> (T.Text -> Url -> Maybe Content -> [T.Text] -> m (Either TrasaErr Content))
      -- ^ method, url, content, accepts -> response
   -> Prepared route response
-  -> m (Maybe response)
+  -> m (Either TrasaErr response)
 requestWith toMethod toCapEncs toQuerys toReqBody toRespBody run (Prepared route captures querys reqBody) =
   let method = toMethod route
       url = encodePieces (toCapEncs route) (toQuerys route) captures querys
@@ -368,7 +373,8 @@ requestWith toMethod toCapEncs toQuerys toReqBody toRespBody run (Prepared route
       respBodyDecs = toRespBody route
       ResponseBody (Many decodings) = respBodyDecs
       accepts = toList (bodyDecodingNames =<< decodings)
-   in fmap (decodeResponseBody respBodyDecs) (run method url content accepts)
+      decode = note (TrasaErr N.status400 "Could not decode response") . decodeResponseBody respBodyDecs
+   in fmap (\c -> c >>= decode) (run method url content accepts)
 
 encodeRequestBody :: RequestBody (Many BodyEncoding) request -> RequestBody Identity request -> Maybe Content
 encodeRequestBody RequestBodyAbsent RequestBodyAbsent = Nothing
@@ -380,8 +386,6 @@ decodeResponseBody :: ResponseBody (Many BodyDecoding) response -> Content -> Ma
 decodeResponseBody (ResponseBody (Many decodings)) (Content name content) =
   flip mapFind decodings $ \(BodyDecoding names decode) ->
     if elem name names then hush (decode content) else Nothing
-  where hush (Left _)  = Nothing
-        hush (Right a) = Just a
 
 encodePieces
   :: Path CaptureEncoding captures
@@ -685,6 +689,14 @@ data Content = Content
   { contentType :: T.Text
   , contentData :: LBS.ByteString
   } deriving (Show,Eq,Ord)
+
+hush :: Either e a -> Maybe a
+hush (Left _)  = Nothing
+hush (Right a) = Just a
+
+note :: e -> Maybe a -> Either e a
+note e Nothing  = Left e
+note _ (Just a) = Right a
 
 mapFind :: Foldable f => (a -> Maybe b) -> f a -> Maybe b
 mapFind f = listToMaybe . mapMaybe f . toList

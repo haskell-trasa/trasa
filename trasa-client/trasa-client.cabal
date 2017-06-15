@@ -14,7 +14,12 @@ cabal-version:       >=1.10
 library
   exposed-modules:     Trasa.Client
   build-depends:       base >=4.9 && <4.10
+                     , bytestring == 0.10.*
+                     , binary == 0.8.*
+                     , text == 1.2.*
+                     , http-types == 0.9.*
                      , http-client == 0.5.*
+                     , vinyl == 0.5.*
                      , trasa == 0.1.*
   hs-source-dirs:      src
   default-language:    Haskell2010
