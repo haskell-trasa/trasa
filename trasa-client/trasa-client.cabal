@@ -10,6 +10,7 @@ category:            Web
 build-type:          Simple
 extra-source-files:  ChangeLog.md
 cabal-version:       >=1.10
+description:         Http client integration for trasa
 
 library
   exposed-modules:     Trasa.Client
@@ -38,3 +39,7 @@ test-suite test
                      , aeson == 1.0.*
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   default-language:    Haskell2010
+
+source-repository head
+  type:     git
+  location: https://github.com/haskell-trasa/trasa

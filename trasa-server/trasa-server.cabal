@@ -1,15 +1,16 @@
 name: trasa-server
 version: 0.1
-synopsis: WAI integration for trasa
-homepage: https://github.com/andrewthad/trasa#readme
+synopsis: Type safe web server
+homepage: https://github.com/haskell-trasa/trasa#readme
 license: BSD3
 license-file: LICENSE
-author: Andrew Martin
-maintainer: andrew.thaddeus@gmail.com
-copyright: 2017 Andrew Martin
+author: Kyle McKean
+maintainer: mckean.kylej@gmail.com
+copyright: 2017 Kyle McKean
 category: Web
 build-type: Simple
 cabal-version: >=1.10
+description: WAI integration for trasa
 
 library
   hs-source-dirs: src
@@ -47,5 +48,5 @@ test-suite test
   default-language: Haskell2010
 
 source-repository head
-  type: git
-  location: https://github.com/andrewthad/trasa
+  type:     git
+  location: https://github.com/haskell-trasa/trasa
