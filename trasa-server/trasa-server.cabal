@@ -22,7 +22,6 @@ library
     , wai == 3.2.*
     , http-types == 0.9.*
     , case-insensitive == 1.2.*
-    , vinyl == 0.5.*
     , containers == 0.5.*
     , mtl == 2.2.*
     , trasa

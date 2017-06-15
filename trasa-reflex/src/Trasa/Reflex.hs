@@ -26,7 +26,6 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS (toStrict,fromStrict)
 
 import Data.Functor.Identity (Identity(..))
-import Data.Vinyl (Rec(..))
 import Data.Foldable (toList)
 import qualified Data.Map.Strict as M
 import qualified Network.HTTP.Types.Status as N

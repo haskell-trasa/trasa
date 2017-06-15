@@ -21,6 +21,7 @@ module Trasa.Core
   , Param(..)
   , Query(..)
   , Parameter(..)
+  , Rec(..)
   , BodyCodec(..)
   , BodyDecoding(..)
   , BodyEncoding(..)
@@ -100,6 +101,7 @@ module Trasa.Core
 
 import Data.Kind (Type)
 import Data.Functor.Identity (Identity(..))
+import Control.Exception (Exception(..))
 import Control.Applicative (liftA2)
 import Data.Maybe (mapMaybe,listToMaybe,isJust)
 import Data.Semigroup (Semigroup(..))
@@ -422,7 +424,12 @@ encodePieces pathEncoding queryEncoding path querys =
 data TrasaErr = TrasaErr
   { trasaErrStatus :: N.Status
   , trasaErrBody :: LBS.ByteString
-  } deriving (Show,Eq,Ord)
+  } deriving (Eq,Ord)
+
+instance Show TrasaErr where
+  show (TrasaErr s b) = "Trasa Error with status: " ++ show s ++ " and body: " ++ LBC.unpack b
+
+instance Exception TrasaErr where
 
 status :: N.Status -> TrasaErr
 status s = TrasaErr s ""

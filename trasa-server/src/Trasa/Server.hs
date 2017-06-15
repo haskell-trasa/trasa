@@ -20,7 +20,6 @@ module Trasa.Server
 import Control.Monad (join)
 import Data.Traversable (for)
 import Data.Functor.Identity
-import Data.Vinyl.Core (Rec)
 
 import Network.HTTP.Types.Header (hAccept,hContentType)
 import qualified Network.HTTP.Types.Status as S

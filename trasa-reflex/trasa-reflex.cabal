@@ -20,7 +20,6 @@ library
                      , text == 1.2.*
                      , http-types == 0.9.*
                      , containers == 0.5.*
-                     , vinyl == 0.5.*
                      , jsaddle == 0.8.*
                      , ghcjs-dom > 0.7 && < 0.9
                      , reflex == 0.5.*

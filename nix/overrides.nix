@@ -3,6 +3,7 @@ let build = path: options (self.callPackage (cabal2nixResult (builtins.filterSou
 in {
   # Deps
   vinyl = lib.dontCheck super.vinyl;
+  ip = lib.dontCheck super.ip;
   # Core Libraries
   trasa = build ../trasa;
   trasa-server = build ../trasa-server;

@@ -1,7 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
-module Trasa.Client where
+module Trasa.Client
+  ( Scheme(..)
+  , Authority(..)
+  , Config(..)
+  , clientWith
+  )where
 
 import Data.Semigroup ((<>))
 import Data.Word (Word16)
@@ -18,7 +23,6 @@ import qualified Network.HTTP.Types.Header as N
 import qualified Network.HTTP.Types.Status as N
 import qualified Network.HTTP.Client as N
 
-import Data.Vinyl (Rec)
 import Trasa.Core
 
 data Scheme = Http | Https
@@ -59,7 +63,7 @@ encodeAcceptBS = TE.encodeUtf8 . T.intercalate ", "
 
 data Config = Config
   { configAuthority :: Authority
-  , configManager :: !(Maybe N.Manager)
+  , configManager :: !N.Manager
   }
 
 clientWith :: forall route response.
@@ -76,17 +80,18 @@ clientWith toMethod toCapEnc toQuerys toReqBody toRespBody config =
   where
     run :: T.Text -> Url -> Maybe Content -> [T.Text] -> IO (Either TrasaErr Content)
     run method (Url path query) mcontent accepts  = do
-      manager <- case mmanager of
-        Nothing -> N.newManager N.defaultManagerSettings
-        Just manager -> return manager
       response <- N.httpLbs req manager
-      return $ case lookup N.hContentType (N.responseHeaders response) of
-        Nothing -> Left (TrasaErr N.status415 "No content type found")
-        Just bs -> case TE.decodeUtf8' bs of
-          Left _ -> Left (TrasaErr N.status415 "Could note utf8 decode content type")
-          Right typ -> Right (Content typ (N.responseBody response))
+      let status = N.responseStatus response
+          body   = N.responseBody response
+      return $ case status < N.status400 of
+        True -> case lookup N.hContentType (N.responseHeaders response) of
+          Nothing -> Left (TrasaErr N.status415 "No content type found")
+          Just bs -> case TE.decodeUtf8' bs of
+            Left _ -> Left (TrasaErr N.status415 "Could note utf8 decode content type")
+            Right typ -> Right (Content typ body)
+        False -> Left (TrasaErr status body)
       where
-        Config (Authority scheme host port) mmanager = config
+        Config (Authority scheme host port) manager = config
         req = N.defaultRequest
           { N.method = TE.encodeUtf8 method
           , N.secure = schemeToSecure scheme
