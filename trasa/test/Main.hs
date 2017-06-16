@@ -8,6 +8,7 @@
 
 import Text.Read (readMaybe)
 import Trasa.Core
+import qualified Trasa.Method as M
 import Data.Vinyl
 import Data.Kind (Type)
 
@@ -26,8 +27,7 @@ main :: IO ()
 main = do
   putStrLn "\nRUNNING DOCTESTS"
   doctest
-    [ "src/Trasa/Core.hs"
-    , "src/Trasa/Tutorial.hs"
+    [ "src/Trasa"
     ]
   putStrLn "\nPRETTY ROUTER"
   putStrLn (prettyRouter router)
@@ -103,7 +103,7 @@ data Meta ps qs rq rp = Meta
   , metaQuery :: Rec (Query CaptureCodec) qs
   , metaRequestBody :: RequestBody BodyCodec rq
   , metaResponseBody :: ResponseBody BodyCodec rp
-  , metaMethod :: T.Text
+  , metaMethod :: Method
   }
 
 meta :: Route ps qs rq rp -> Meta ps qs rq rp
@@ -111,31 +111,31 @@ meta x = case x of
   EmptyR -> Meta
     end
     qend
-    bodyless (resp bodyInt) "get"
+    bodyless (resp bodyInt) M.get
   HelloR -> Meta
     (match "hello" ./ end)
     qend
-    bodyless (resp bodyInt) "get"
+    bodyless (resp bodyInt) M.get
   AdditionR -> Meta
     (match "add" ./ capture int ./ capture int ./ end)
     (optional "more" int .& qend)
-    bodyless (resp bodyInt) "get"
+    bodyless (resp bodyInt) M.get
   IdentityR -> Meta
     (match "identity" ./ capture string ./ end)
     qend
-    bodyless (resp bodyString) "get"
+    bodyless (resp bodyString) M.get
   LeftPadR -> Meta
     (match "pad" ./ match "left" ./ capture int ./ end)
     qend
-    (body bodyString) (resp bodyString) "get"
+    (body bodyString) (resp bodyString) M.get
   TrickyOneR -> Meta
     (match "tricky" ./ capture int ./ match "one" ./ end)
     qend
-    bodyless (resp bodyString) "get"
+    bodyless (resp bodyString) M.get
   TrickyTwoR -> Meta
     (capture int ./ capture int ./ match "two" ./ end)
     qend
-    bodyless (resp bodyString) "get"
+    bodyless (resp bodyString) M.get
 
 int :: CaptureCodec Int
 int = CaptureCodec (T.pack . show) (readMaybe . T.unpack)

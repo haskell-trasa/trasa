@@ -15,36 +15,28 @@ module Trasa.Core
   (
   -- * Types
     Bodiedness(..)
-  , Path(..)
-  , ResponseBody(..)
-  , RequestBody(..)
-  , Param(..)
-  , Query(..)
-  , Parameter(..)
-  , Rec(..)
-  , BodyCodec(..)
-  , BodyDecoding(..)
-  , BodyEncoding(..)
-  , Many(..)
-  , CaptureCodec(..)
-  , CaptureEncoding(..)
-  , CaptureDecoding(..)
   , Content(..)
-  , QueryString(..)
-  , Url(..)
   , Payload(..)
-  , TrasaErr(..)
   , Router
   -- ** Existential
   , Prepared(..)
   , Concealed(..)
   , Constructed(..)
-  -- * Queries
+  , mapConstructed
+  -- * Request Types
+  -- ** Method
+  , Method(..)
+  -- ** Queries
+  , QueryString(..)
   , encodeQuery
   , decodeQuery
-  -- * Url
+  -- ** Url
+  , Url(..)
   , encodeUrl
   , decodeUrl
+  -- ** Errors
+  , TrasaErr(..)
+  , status
   -- * Using Routes
   , prepareWith
   , dispatchWith
@@ -53,20 +45,20 @@ module Trasa.Core
   , payloadWith
   , requestWith
   , routerWith
-  , handler
   -- * Defining Routes
   -- ** Path
+  , Path(..)
   , match
   , capture
   , end
   , (./)
+  , mapPath
   , appendPath
-  -- ** Request Body
-  , body
-  , bodyless
-  -- ** Response Body
-  , resp
   -- ** Query
+  , Param(..)
+  , Query(..)
+  , Parameter(..)
+  , Rec(..)
   , demoteParameter
   , flag
   , optional
@@ -74,90 +66,73 @@ module Trasa.Core
   , qend
   , (.&)
   , mapQuery
-  -- * Converting Route Metadata
+  -- ** Request Body
+  , RequestBody(..)
+  , body
+  , bodyless
+  , mapRequestBody
+  -- ** Response Body
+  , ResponseBody(..)
+  , resp
+  , mapResponseBody
+  -- ** Many
+  , Many(..)
   , one
   , mapMany
-  , mapPath
-  , mapRequestBody
-  , mapResponseBody
-  , mapConstructed
-  -- * Converting Codecs
-  , bodyCodecToBodyEncoding
-  , bodyCodecToBodyDecoding
+  -- * Codecs
+  , CaptureEncoding(..)
+  , CaptureDecoding(..)
+  , CaptureCodec(..)
+  , BodyEncoding(..)
+  , BodyDecoding(..)
+  , BodyCodec(..)
+    -- ** Converting Codecs
   , captureCodecToCaptureEncoding
   , captureCodecToCaptureDecoding
-  -- * Errors
-  , status
+  , bodyCodecToBodyEncoding
+  , bodyCodecToBodyDecoding
+  -- ** Type Class based Codecs
+  , showReadCaptureCodec
+  , showReadBodyCodec
   -- * Argument Currying
   , ParamBase
   , Arguments
+  , handler
   -- * Random Stuff
   , conceal
   , encodeRequestBody
   , decodeResponseBody
   , prettyRouter
-  -- * Show/Read Codecs
-  , showReadBodyCodec
-  , showReadCaptureCodec
   ) where
 
 import Data.Kind (Type)
 import Data.Functor.Identity (Identity(..))
-import Control.Exception (Exception(..))
 import Control.Applicative (liftA2)
 import Data.Maybe (mapMaybe,listToMaybe,isJust)
-import Data.Semigroup (Semigroup(..))
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List as L
 import qualified Data.List.NonEmpty as NE
 import Data.Foldable (toList)
 import Data.Bifunctor (first)
-import Text.Read (readEither,readMaybe)
 
 import qualified Data.ByteString.Lazy as LBS
-import qualified Data.ByteString.Lazy.Char8 as LBC
-import qualified Data.Binary.Builder as LBS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Network.HTTP.Types.Status as N
-import qualified Network.HTTP.Types.URI as N
+import qualified Network.HTTP.Media.MediaType as N
+import qualified Network.HTTP.Media.Accept as N
 import qualified Data.HashMap.Strict as HM
 import Data.HashMap.Strict (HashMap)
 import Data.Vinyl (Rec(..),rmap)
 import Data.Vinyl.TypeLevel (type (++))
 
+import Trasa.Method as X
+import Trasa.Url as X
+import Trasa.Error as X
+import Trasa.Codec as X
+
 -- $setup
 -- >>> :set -XTypeInType
-
-data Bodiedness = forall a. Body a | Bodyless
-
-data RequestBody :: (Type -> Type) -> Bodiedness -> Type where
-  RequestBodyPresent :: f a -> RequestBody f ('Body a)
-  RequestBodyAbsent :: RequestBody f 'Bodyless
-
-mapRequestBody :: (forall x. rqf x -> rqf' x) -> RequestBody rqf request -> RequestBody rqf' request
-mapRequestBody _ RequestBodyAbsent = RequestBodyAbsent
-mapRequestBody f (RequestBodyPresent reqBod) = RequestBodyPresent (f reqBod)
-
-newtype ResponseBody rpf response = ResponseBody { getResponseBody :: rpf response }
-
-mapResponseBody :: (forall x. rpf x -> rpf' x) -> ResponseBody rpf request -> ResponseBody rpf' request
-mapResponseBody f (ResponseBody resBod) = ResponseBody (f resBod)
-
-data Path :: (Type -> Type) -> [Type] -> Type where
-  PathNil :: Path cap '[]
-  PathConsCapture :: cap a -> Path cap as -> Path cap (a ': as)
-  PathConsMatch :: T.Text -> Path cap as -> Path cap as
-
-mapPath :: (forall x. cf x -> cf' x) -> Path cf ps -> Path cf' ps
-mapPath _ PathNil = PathNil
-mapPath f (PathConsMatch s pnext) = PathConsMatch s (mapPath f pnext)
-mapPath f (PathConsCapture c pnext) = PathConsCapture (f c) (mapPath f pnext)
-
-appendPath :: Path f as -> Path f bs -> Path f (as ++ bs)
-appendPath PathNil bs = bs
-appendPath (PathConsMatch a as) bs = PathConsMatch a (appendPath as bs)
-appendPath (PathConsCapture cas as) bs = PathConsCapture cas (appendPath as bs)
 
 newtype Many f a = Many { getMany :: NonEmpty (f a) }
   deriving (Functor)
@@ -172,67 +147,34 @@ one = Many . pure
 mapMany :: (forall x. f x -> g x) -> Many f a -> Many g a
 mapMany eta (Many m) = Many (fmap eta m)
 
-data BodyDecoding a = BodyDecoding
-  { bodyDecodingNames :: NonEmpty T.Text
-  , bodyDecodingFunction :: LBS.ByteString -> Either T.Text a
-  }
+data Bodiedness = forall a. Body a | Bodyless
 
-data BodyEncoding a = BodyEncoding
-  { bodyEncodingNames :: NonEmpty T.Text
-  , bodyEncodingFunction :: a -> LBS.ByteString
-  }
+data RequestBody :: (Type -> Type) -> Bodiedness -> Type where
+  RequestBodyPresent :: f a -> RequestBody f ('Body a)
+  RequestBodyAbsent :: RequestBody f 'Bodyless
 
--- Note to self, we maybe should change this to use list instead of
--- non-empty list. When encoding unit, we actually want
--- to omit the Content-Type header.
-data BodyCodec a = BodyCodec
-  { bodyCodecNames :: NonEmpty T.Text
-  , bodyCodecEncode :: a -> LBS.ByteString
-  , bodyCodecDecode :: LBS.ByteString -> Either T.Text a
-  }
+body :: rqf req -> RequestBody rqf ('Body req)
+body = RequestBodyPresent
 
-bodyCodecToBodyEncoding :: BodyCodec a -> BodyEncoding a
-bodyCodecToBodyEncoding (BodyCodec names enc _) = BodyEncoding names enc
+bodyless :: RequestBody rqf 'Bodyless
+bodyless = RequestBodyAbsent
 
-bodyCodecToBodyDecoding :: BodyCodec a -> BodyDecoding a
-bodyCodecToBodyDecoding (BodyCodec names _ dec) = BodyDecoding names dec
+mapRequestBody :: (forall x. rqf x -> rqf' x) -> RequestBody rqf request -> RequestBody rqf' request
+mapRequestBody _ RequestBodyAbsent = RequestBodyAbsent
+mapRequestBody f (RequestBodyPresent reqBod) = RequestBodyPresent (f reqBod)
 
-data Param
-  = Flag
-  | forall a. Optional a
-  | forall a. List a
+newtype ResponseBody rpf response = ResponseBody { getResponseBody :: rpf response }
 
-data Query :: (Type -> Type) -> Param -> Type where
-  QueryFlag :: T.Text -> Query cap Flag
-  QueryOptional :: T.Text -> cap a -> Query cap (Optional a)
-  QueryList :: T.Text -> cap a -> Query cap (List a)
+resp :: rpf resp -> ResponseBody rpf resp
+resp = ResponseBody
 
-data Parameter :: Param -> Type where
-  ParameterFlag :: Bool -> Parameter Flag
-  ParameterOptional :: Maybe a -> Parameter (Optional a)
-  ParameterList :: [a] -> Parameter (List a)
+mapResponseBody :: (forall x. rpf x -> rpf' x) -> ResponseBody rpf request -> ResponseBody rpf' request
+mapResponseBody f (ResponseBody resBod) = ResponseBody (f resBod)
 
-data QueryParam
-  = QueryParamFlag
-  | QueryParamSingle T.Text
-  | QueryParamList [T.Text]
-  deriving Eq
-
-instance Semigroup QueryParam where
-  QueryParamFlag <> q = q
-  q <> QueryParamFlag = q
-  QueryParamSingle q1 <> QueryParamSingle q2 = QueryParamList [q1,q2]
-  QueryParamSingle q1 <> QueryParamList l1 = QueryParamList (q1:l1)
-  QueryParamList l1 <> QueryParamSingle q1 = QueryParamList (l1 ++ [q1]) -- Change list to a set
-  QueryParamList l1 <> QueryParamList l2 = QueryParamList (l1 ++ l2)
-
-instance Monoid QueryParam where
-  mempty = QueryParamFlag
-  mappend = (<>)
-
-newtype QueryString = QueryString
-  { unQueryString :: HM.HashMap T.Text QueryParam
-  } deriving Eq
+data Path :: (Type -> Type) -> [Type] -> Type where
+  PathNil :: Path cap '[]
+  PathConsCapture :: cap a -> Path cap as -> Path cap (a ': as)
+  PathConsMatch :: T.Text -> Path cap as -> Path cap as
 
 infixr 7 ./
 
@@ -248,14 +190,30 @@ capture = PathConsCapture
 end :: Path cpf '[]
 end = PathNil
 
-body :: rqf req -> RequestBody rqf ('Body req)
-body = RequestBodyPresent
+mapPath :: (forall x. cf x -> cf' x) -> Path cf ps -> Path cf' ps
+mapPath _ PathNil = PathNil
+mapPath f (PathConsMatch s pnext) = PathConsMatch s (mapPath f pnext)
+mapPath f (PathConsCapture c pnext) = PathConsCapture (f c) (mapPath f pnext)
 
-bodyless :: RequestBody rqf 'Bodyless
-bodyless = RequestBodyAbsent
+appendPath :: Path f as -> Path f bs -> Path f (as ++ bs)
+appendPath PathNil bs = bs
+appendPath (PathConsMatch a as) bs = PathConsMatch a (appendPath as bs)
+appendPath (PathConsCapture cas as) bs = PathConsCapture cas (appendPath as bs)
 
-resp :: rpf resp -> ResponseBody rpf resp
-resp = ResponseBody
+data Param
+  = Flag
+  | forall a. Optional a
+  | forall a. List a
+
+data Parameter :: Param -> Type where
+  ParameterFlag :: Bool -> Parameter Flag
+  ParameterOptional :: Maybe a -> Parameter (Optional a)
+  ParameterList :: [a] -> Parameter (List a)
+
+data Query :: (Type -> Type) -> Param -> Type where
+  QueryFlag :: T.Text -> Query cap Flag
+  QueryOptional :: T.Text -> cap a -> Query cap (Optional a)
+  QueryList :: T.Text -> cap a -> Query cap (List a)
 
 flag :: T.Text -> Query cpf Flag
 flag = QueryFlag
@@ -280,62 +238,6 @@ mapQuery eta = rmap $ \case
   QueryOptional key query -> QueryOptional key (eta query)
   QueryList key query -> QueryList key (eta query)
 
-data CaptureCodec a = CaptureCodec
-  { captureCodecEncode :: a -> T.Text
-  , captureCodecDecode :: T.Text -> Maybe a
-  }
-
-newtype CaptureEncoding a = CaptureEncoding { appCaptureEncoding :: a -> T.Text }
-newtype CaptureDecoding a = CaptureDecoding { appCaptureDecoding :: T.Text -> Maybe a }
-
-captureCodecToCaptureEncoding :: CaptureCodec a -> CaptureEncoding a
-captureCodecToCaptureEncoding (CaptureCodec enc _) = CaptureEncoding enc
-
-captureCodecToCaptureDecoding :: CaptureCodec a -> CaptureDecoding a
-captureCodecToCaptureDecoding (CaptureCodec _ dec) = CaptureDecoding dec
-
-data Url = Url
-  { urlPath :: ![T.Text]
-  , urlQueryString :: !QueryString
-  } deriving Eq
-
-instance Show Url where
-  show = show . encodeUrl
-
-encodeQuery :: QueryString -> N.Query
-encodeQuery = HM.foldrWithKey (\key param items -> toQueryItem key param ++ items) [] . unQueryString
-  where
-    toQueryItem :: T.Text -> QueryParam -> N.Query
-    toQueryItem key = \case
-      QueryParamFlag -> [(T.encodeUtf8 key, Nothing)]
-      QueryParamSingle value -> [(T.encodeUtf8 key, Just (T.encodeUtf8 value))]
-      QueryParamList values ->
-        flip fmap values $ \value -> (T.encodeUtf8 key, Just (T.encodeUtf8 value))
-
-encodeUrl :: Url -> T.Text
-encodeUrl (Url path querys) =
-  ( T.decodeUtf8
-  . LBS.toStrict
-  . LBS.toLazyByteString
-  . encode
-  . encodeQuery ) querys
-  where
-    encode qs = case path of
-      [] -> "/" <> N.encodePath path qs
-      _  -> N.encodePath path qs
-
-decodeQuery :: N.Query -> QueryString
-decodeQuery = QueryString . HM.fromListWith (<>) . fmap decode
-  where
-    decode (key,mval) = case mval of
-      Nothing  -> (tkey,QueryParamFlag)
-      Just val -> (tkey,QueryParamSingle (T.decodeUtf8 val))
-      where tkey = T.decodeUtf8 key
-
-decodeUrl :: T.Text -> Url
-decodeUrl txt = Url path (decodeQuery querys)
-  where (path,querys) = N.decodePath (T.encodeUtf8 txt)
-
 -- | Generate a @Url@ for use in hyperlinks.
 linkWith :: forall route response.
      (forall caps qrys req resp. route caps qrys req resp -> Path CaptureEncoding caps)
@@ -351,7 +253,7 @@ linkWith toCapEncs toQueries (Prepared route captures querys _) =
 data Payload = Payload
   { payloadUrl :: !Url
   , payloadContent :: !(Maybe Content)
-  , payloadAccepts :: !(NonEmpty T.Text)
+  , payloadAccepts :: !(NonEmpty N.MediaType)
   }
 
 -- | Only useful for library authors
@@ -377,24 +279,23 @@ payloadWith toCapEncs toQueries toReqBody toRespBody p@(Prepared route _ _ reqBo
 
 -- Only useful to implement packages like 'trasa-client'
 requestWith :: Functor m
-  => (forall caps querys req resp. route caps querys req resp -> T.Text)
+  => (forall caps querys req resp. route caps querys req resp -> Method)
   -> (forall caps querys req resp. route caps querys req resp -> Path CaptureEncoding caps)
   -> (forall caps querys req resp. route caps querys req resp -> Rec (Query CaptureEncoding) querys)
   -> (forall caps querys req resp. route caps querys req resp -> RequestBody (Many BodyEncoding) req)
   -> (forall caps querys req resp. route caps querys req resp -> ResponseBody (Many BodyDecoding) resp)
-  -> (T.Text -> Url -> Maybe Content -> [T.Text] -> m (Either TrasaErr Content))
+  -> (T.Text -> Url -> Maybe Content -> NonEmpty N.MediaType -> m (Either TrasaErr Content))
   -- ^ method, url, content, accepts -> response
   -> Prepared route response
   -> m (Either TrasaErr response)
 requestWith toMethod toCapEncs toQueries toReqBody toRespBody run (Prepared route captures querys reqBody) =
-  let method = toMethod route
+  let method = encodeMethod (toMethod route)
       url = encodePieces (toCapEncs route) (toQueries route) captures querys
       content = encodeRequestBody (toReqBody route) reqBody
       respBodyDecs = toRespBody route
       ResponseBody (Many decodings) = respBodyDecs
-      accepts = toList (bodyDecodingNames =<< decodings)
-      decode = note (TrasaErr N.status400 "Could not decode response") . decodeResponseBody respBodyDecs
-   in fmap (\c -> c >>= decode) (run method url content accepts)
+      accepts = bodyDecodingNames =<< decodings
+   in fmap (\c -> c >>= decodeResponseBody respBodyDecs) (run method url content accepts)
 
 encodeRequestBody :: RequestBody (Many BodyEncoding) request -> RequestBody Identity request -> Maybe Content
 encodeRequestBody RequestBodyAbsent RequestBodyAbsent = Nothing
@@ -402,10 +303,14 @@ encodeRequestBody (RequestBodyPresent (Many encodings)) (RequestBodyPresent (Ide
   case NE.head encodings of
     BodyEncoding names encoding -> Just (Content (NE.head names) (encoding rq))
 
-decodeResponseBody :: ResponseBody (Many BodyDecoding) response -> Content -> Maybe response
-decodeResponseBody (ResponseBody (Many decodings)) (Content name content) =
-  flip mapFind decodings $ \(BodyDecoding names decode) ->
-    if elem name names then hush (decode content) else Nothing
+decodeResponseBody :: ResponseBody (Many BodyDecoding) response -> Content -> Either TrasaErr response
+decodeResponseBody (ResponseBody (Many decodings)) (Content name content) = go (toList decodings)
+  where
+    go :: [BodyDecoding response] -> Either TrasaErr response
+    go [] = Left (status N.status415)
+    go (BodyDecoding names dec:decs) = case any (N.matches name) names of
+      True -> first (TrasaErr N.status400 . LBS.fromStrict . T.encodeUtf8) (dec content)
+      False -> go decs
 
 encodePieces
   :: Path CaptureEncoding captures
@@ -439,19 +344,6 @@ encodePieces pathEncoding queryEncoding path querys =
     encodeQueries (QueryList key (CaptureEncoding enc) :& encs) (ParameterList vals :& qs) =
        HM.insert key (QueryParamList (fmap enc vals)) (encodeQueries encs qs)
 
-data TrasaErr = TrasaErr
-  { trasaErrStatus :: N.Status
-  , trasaErrBody :: LBS.ByteString
-  } deriving (Eq,Ord)
-
-instance Show TrasaErr where
-  show (TrasaErr s b) = "Trasa Error with status: " ++ show s ++ " and body: " ++ LBC.unpack b
-
-instance Exception TrasaErr where
-
-status :: N.Status -> TrasaErr
-status s = TrasaErr s ""
-
 -- | Only useful to implement packages like 'trasa-server'
 dispatchWith :: forall route m.
      Applicative m
@@ -460,8 +352,8 @@ dispatchWith :: forall route m.
   -> (forall caps qrys req resp. route caps qrys req resp -> ResponseBody (Many BodyEncoding) resp)
   -> (forall caps qrys req resp. route caps qrys req resp -> Rec Identity caps -> Rec Parameter qrys -> RequestBody Identity req -> m resp)
   -> Router route -- ^ Router
-  -> T.Text -- ^ Method
-  -> [T.Text] -- ^ Accept headers
+  -> Method -- ^ Method
+  -> [N.MediaType] -- ^ Accept headers
   -> Url -- ^ Everything after the authority
   -> Maybe Content -- ^ Content type and request body
   -> m (Either TrasaErr Content) -- ^ Encoded response
@@ -481,7 +373,7 @@ dispatchWith toQueries toReqBody toRespBody makeResponse router method accepts u
 
 -- | Build a router from all the possible routes, and methods to turn routes into needed metadata
 routerWith ::
-     (forall caps querys req resp. route caps querys req resp -> T.Text)
+     (forall caps querys req resp. route caps querys req resp -> Method)
   -- ^ Get the method from a route
   -> (forall caps querys req resp. route caps querys req resp -> Path CaptureDecoding caps)
   -- ^ How to decode path pieces of a route
@@ -496,7 +388,7 @@ parseWith :: forall route.
      (forall caps qrys req resp. route caps qrys req resp -> Rec (Query CaptureDecoding) qrys)
   -> (forall caps qrys req resp. route caps qrys req resp -> RequestBody (Many BodyDecoding) req)
   -> Router route -- ^ Router
-  -> T.Text -- ^ Request Method
+  -> Method -- ^ Request Method
   -> Url -- ^ Everything after the authority
   -> Maybe Content -- ^ Request content type and body
   -> Either TrasaErr (Concealed route)
@@ -521,7 +413,7 @@ parseWith toQueries toReqBody router method (Url encodedPath encodedQuery) mcont
 -- | Parses only the path.
 parsePathWith :: forall route.
      Router route
-  -> T.Text -- ^ Method
+  -> Method -- ^ Method
   -> [T.Text] -- ^ Path Pieces
   -> Maybe (Pathed route)
 parsePathWith (Router r0) method pieces0 =
@@ -533,7 +425,7 @@ parsePathWith (Router r0) method pieces0 =
      -> IxedRouter route n -- router fragment
      -> [Pathed route]
   go captures ps (IxedRouter matches mcapture responders) = case ps of
-    [] -> case HM.lookup method responders of
+    [] -> case HM.lookup (encodeMethod method) responders of
       Nothing -> []
       Just respondersAtMethod ->
         mapMaybe (\(IxedResponder route capDecs) ->
@@ -720,17 +612,9 @@ conceal (Prepared route caps querys req) = Concealed route caps querys req
 
 -- | The HTTP content type and body.
 data Content = Content
-  { contentType :: T.Text
+  { contentType :: N.MediaType
   , contentData :: LBS.ByteString
   } deriving (Show,Eq,Ord)
-
-hush :: Either e a -> Maybe a
-hush (Left _)  = Nothing
-hush (Right a) = Just a
-
-note :: e -> Maybe a -> Either e a
-note e Nothing  = Left e
-note _ (Just a) = Right a
 
 mapFind :: Foldable f => (a -> Maybe b) -> f a -> Maybe b
 mapFind f = listToMaybe . mapMaybe f . toList
@@ -739,15 +623,6 @@ mapFindE :: Foldable f => e -> (a -> Maybe b) -> f a -> Either e b
 mapFindE e f = listToEither . mapMaybe f . toList
   where listToEither [] = Left e
         listToEither (x:_) = Right x
-
-showReadBodyCodec :: (Show a, Read a) => BodyCodec a
-showReadBodyCodec = BodyCodec
-  (pure "text/haskell")
-  (LBC.pack . show)
-  (first T.pack . readEither . LBC.unpack)
-
-showReadCaptureCodec :: (Show a, Read a) => CaptureCodec a
-showReadCaptureCodec = CaptureCodec (T.pack . show) (readMaybe . T.unpack)
 
 -- | Only promoted version used.
 data Nat = S !Nat | Z
@@ -855,7 +730,7 @@ reverseLenPathMatch = go
   go (LenPathCapture pnext) = snocLenPathCapture (go pnext)
 
 singletonIxedRouter ::
-  route captures querys request response -> T.Text -> Path CaptureDecoding captures -> IxedRouter route 'Z
+  route captures querys request response -> Method -> Path CaptureDecoding captures -> IxedRouter route 'Z
 singletonIxedRouter route method capDecs = case pathToIxedPath capDecs of
   HideIx ixedCapDecs ->
     let ixedCapDecsRec = ixedPathToIxedRec ixedCapDecs
@@ -864,9 +739,9 @@ singletonIxedRouter route method capDecs = case pathToIxedPath capDecs of
      in singletonIxedRouterHelper responder method lenPath
 
 singletonIxedRouterHelper ::
-  IxedResponder route n -> T.Text -> LenPath n -> IxedRouter route 'Z
+  IxedResponder route n -> Method -> LenPath n -> IxedRouter route 'Z
 singletonIxedRouterHelper responder method path =
-  let r = IxedRouter HM.empty Nothing (HM.singleton method [responder])
+  let r = IxedRouter HM.empty Nothing (HM.singleton (encodeMethod method) [responder])
    in singletonIxedRouterGo r path
 
 singletonIxedRouterGo ::

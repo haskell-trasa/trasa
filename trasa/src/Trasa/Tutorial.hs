@@ -11,6 +11,7 @@ module Trasa.Tutorial
   ) where
 
 import Trasa.Core
+import qualified Trasa.Method as M
 import Data.Vinyl (Rec)
 import Data.Kind (Type)
 import Data.Text (Text)
@@ -40,7 +41,7 @@ import Data.Text (Text)
 --   , metaQuery :: Rec (Query CaptureCodec) querys
 --   , metaRequestBody :: RequestBody BodyCodec request
 --   , metaResponseBody :: ResponseBody BodyCodec response
---   , metaMethod :: Text
+--   , metaMethod :: Method
 --   }
 -- int :: CaptureCodec Int
 -- int = showReadCaptureCodec
@@ -55,19 +56,19 @@ import Data.Text (Text)
 --   AssignR -> Meta
 --     (match "assign" ./ capture counter ./ match "to" ./ capture int ./ end)
 --     qend
---     bodyless (resp bodyUnit) "post"
+--     bodyless (resp bodyUnit) M.post
 --   IncrementR -> Meta
 --     (match "increment" ./ capture counter ./ end)
 --     qend
---     bodyless (resp bodyInt) "post"
+--     bodyless (resp bodyInt) M.post
 --   QueryR -> Meta
 --     (match "query" ./ capture counter ./ end)
 --     qend
---     bodyless (resp bodyInt) "get"
+--     bodyless (resp bodyInt) M.get
 --   TotalR -> Meta
 --     (match "total" ./ end)
 --     qend
---     bodyless (resp bodyInt) "get"
+--     bodyless (resp bodyInt) M.get
 -- :}
 --
 -- Now, we can start using our routes. To do this, we take functions that
