@@ -24,6 +24,7 @@ import System.Exit (exitFailure)
 import qualified Network.HTTP.Types.Status as N
 import qualified Network.HTTP.Client as N
 import Trasa.Core
+import qualified Trasa.Method as M
 import Trasa.Client
 
 data Ip = Ip
@@ -63,14 +64,14 @@ data Meta caps qrys req resp = Meta
   , metaQuery :: Rec (Query CaptureCodec) qrys
   , metaRequestBody :: RequestBody BodyCodec req
   , metaResponseBody :: ResponseBody BodyCodec resp
-  , metaMethod :: T.Text }
+  , metaMethod :: Method }
 
 meta :: Route caps qrys req resp -> Meta caps qrys req resp
 meta = \case
-  RouteHome -> Meta end qend bodyless (resp bodyUnit) "GET"
-  RouteIp -> Meta (match "ip" ./ end) qend bodyless (resp bodyAeson) "GET"
-  RouteStatus -> Meta (match "status" ./ capture int ./ end) qend bodyless (resp bodyUnit) "GET"
-  RouteQuery -> Meta (match "anything" ./ end) (optional "int" int .& qend) bodyless (resp bodyAeson) "GET"
+  RouteHome -> Meta end qend bodyless (resp bodyUnit) M.get
+  RouteIp -> Meta (match "ip" ./ end) qend bodyless (resp bodyAeson) M.get
+  RouteStatus -> Meta (match "status" ./ capture int ./ end) qend bodyless (resp bodyUnit) M.get
+  RouteQuery -> Meta (match "anything" ./ end) (optional "int" int .& qend) bodyless (resp bodyAeson) M.get
 
 prepare :: Route caps qrys req resp -> Arguments caps qrys req (Prepared Route resp)
 prepare = prepareWith (metaPath . meta) (metaQuery . meta) (metaRequestBody . meta)

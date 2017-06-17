@@ -288,12 +288,12 @@ requestWith :: Functor m
   -> (forall caps querys req resp. route caps querys req resp -> Rec (Query CaptureEncoding) querys)
   -> (forall caps querys req resp. route caps querys req resp -> RequestBody (Many BodyEncoding) req)
   -> (forall caps querys req resp. route caps querys req resp -> ResponseBody (Many BodyDecoding) resp)
-  -> (T.Text -> Url -> Maybe Content -> NonEmpty N.MediaType -> m (Either TrasaErr Content))
+  -> (Method -> Url -> Maybe Content -> NonEmpty N.MediaType -> m (Either TrasaErr Content))
   -- ^ method, url, content, accepts -> response
   -> Prepared route response
   -> m (Either TrasaErr response)
 requestWith toMethod toCapEncs toQueries toReqBody toRespBody run (Prepared route captures querys reqBody) =
-  let method = encodeMethod (toMethod route)
+  let method = toMethod route
       url = encodePieces (toCapEncs route) (toQueries route) captures querys
       content = encodeRequestBody (toReqBody route) reqBody
       respBodyDecs = toRespBody route

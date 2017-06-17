@@ -10,10 +10,11 @@ module Trasa.Client
   , Config(..)
   -- * Requests
   , clientWith
-  )where
+  ) where
 
-import Data.Semigroup ((<>))
 import Data.Word (Word16)
+import Data.Semigroup ((<>))
+import qualified Data.List.NonEmpty as NE
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Binary.Builder as LBS
@@ -25,6 +26,7 @@ import qualified Data.Text.Lazy.Builder.Int as LT
 import qualified Network.HTTP.Types.URI as N
 import qualified Network.HTTP.Types.Header as N
 import qualified Network.HTTP.Types.Status as N
+import qualified Network.HTTP.Media as N
 import qualified Network.HTTP.Client as N
 
 import Trasa.Core hiding (status,body)
@@ -63,8 +65,8 @@ encodeQueryBS =
   N.renderQueryBuilder True .
   encodeQuery
 
-encodeAcceptBS :: [T.Text] -> BS.ByteString
-encodeAcceptBS = TE.encodeUtf8 . T.intercalate ", "
+encodeAcceptBS :: NE.NonEmpty N.MediaType -> BS.ByteString
+encodeAcceptBS = BS.intercalate "; " . fmap N.renderHeader . NE.toList
 
 data Config = Config
   { configAuthority :: Authority
@@ -72,7 +74,7 @@ data Config = Config
   }
 
 clientWith :: forall route response.
-     (forall caps qrys req resp. route caps qrys req resp -> T.Text)
+     (forall caps qrys req resp. route caps qrys req resp -> Method)
   -- ^ Get the method out of the route
   -> (forall caps qrys req resp. route caps qrys req resp -> Path CaptureEncoding caps)
   -- ^ Get a way to encode paths from a route
@@ -89,7 +91,7 @@ clientWith :: forall route response.
 clientWith toMethod toCapEnc toQuerys toReqBody toRespBody config =
   requestWith toMethod toCapEnc toQuerys toReqBody toRespBody run
   where
-    run :: T.Text -> Url -> Maybe Content -> [T.Text] -> IO (Either TrasaErr Content)
+    run :: Method -> Url -> Maybe Content -> NE.NonEmpty N.MediaType -> IO (Either TrasaErr Content)
     run method (Url path query) mcontent accepts  = do
       response <- N.httpLbs req manager
       let status = N.responseStatus response
@@ -97,14 +99,14 @@ clientWith toMethod toCapEnc toQuerys toReqBody toRespBody config =
       return $ case status < N.status400 of
         True -> case lookup N.hContentType (N.responseHeaders response) of
           Nothing -> Left (TrasaErr N.status415 "No content type found")
-          Just bs -> case TE.decodeUtf8' bs of
-            Left _ -> Left (TrasaErr N.status415 "Could note utf8 decode content type")
-            Right typ -> Right (Content typ body)
+          Just bs -> case N.parseAccept bs of
+            Nothing  -> Left (TrasaErr N.status415 "Could not decode content type")
+            Just typ -> Right (Content typ body)
         False -> Left (TrasaErr status body)
       where
         Config (Authority scheme host port) manager = config
         req = N.defaultRequest
-          { N.method = TE.encodeUtf8 method
+          { N.method = TE.encodeUtf8 (encodeMethod method)
           , N.secure = schemeToSecure scheme
           , N.host = encodeAuthority host port
           , N.port = maybe (schemeToPort scheme) fromIntegral port
@@ -112,7 +114,7 @@ clientWith toMethod toCapEnc toQuerys toReqBody toRespBody config =
           , N.queryString = encodeQueryBS query
           , N.requestHeaders = [(N.hAccept,encodeAcceptBS accepts)] ++ case mcontent of
               Nothing -> []
-              Just (Content typ _) -> [(N.hContentType,TE.encodeUtf8 typ)]
+              Just (Content typ _) -> [(N.hContentType,N.renderHeader typ)]
           , N.requestBody = case mcontent of
               Nothing -> N.RequestBodyLBS ""
               Just (Content _ reqBody) -> N.RequestBodyLBS reqBody
