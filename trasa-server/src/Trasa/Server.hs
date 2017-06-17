@@ -101,4 +101,4 @@ serveWith toQuerys toReqBody toRespBody makeResponse router =
     parseHeaders = traverse TE.decodeUtf8' . M.fromList . WAI.requestHeaders
     parseAccepts headers = do
       accept <- M.lookup hAccept headers
-      (traverse N.parseAccept . fmap (TE.encodeUtf8 . T.dropAround (' '==)) . T.splitOn ";") accept
+      (traverse N.parseAccept . fmap (TE.encodeUtf8 . T.dropAround (' '==)) . T.splitOn ",") accept
