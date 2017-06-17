@@ -1,5 +1,5 @@
 name: trasa
-version: 0.1
+version: 0.2
 synopsis: Type Safe Web Routing
 homepage: https://github.com/haskell-trasa/trasa#readme
 license: BSD3

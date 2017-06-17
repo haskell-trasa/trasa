@@ -1,4 +1,4 @@
-{ package, test ? true, frontend ? false }:
+{ package ? null, test ? true, test-all ? "false", frontend ? false }:
 let bootstrap = import <nixpkgs> {};
     fetch-github-json = owner: repo: path:
       let commit = builtins.fromJSON (builtins.readFile path);
@@ -21,7 +21,11 @@ let bootstrap = import <nixpkgs> {};
         in import ./overrides.nix { inherit options filterPredicate lib cabal2nixResult self super; };
     };
     drv = builtins.getAttr package overrides;
-in if reflex-platform.nixpkgs.lib.inNixShell then
-  reflex-platform.workOn overrides drv
+in
+if test-all == "true" then
+ { inherit (overrides) trasa trasa-client trasa-server trasa-reflex; }
 else
+ if reflex-platform.nixpkgs.lib.inNixShell then
+  reflex-platform.workOn overrides drv
+ else
   drv
