@@ -20,7 +20,6 @@ module Trasa.Reflex
 
 import Data.Kind (Type)
 
-import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS (toStrict,fromStrict)
@@ -29,6 +28,7 @@ import Data.Functor.Identity (Identity(..))
 import Data.Foldable (toList)
 import qualified Data.Map.Strict as M
 import qualified Network.HTTP.Types.Status as N
+import qualified Network.HTTP.Media as N
 import Reflex.Dom
 
 import Trasa.Core hiding (requestWith,Arguments,handler)
@@ -65,7 +65,7 @@ newtype Preps route resp f a = Preps (f (Pair (ResponseHandler route resp) a))
 -- | Single request version of 'requestManyWith'
 requestWith :: forall t m route response.
   MonadWidget t m
-  => (forall caps qrys req resp. route caps qrys req resp -> T.Text)
+  => (forall caps qrys req resp. route caps qrys req resp -> Method)
   -- ^
   -> (forall caps qrys req resp. route caps qrys req resp -> Path CaptureEncoding caps)
   -> (forall caps qrys req resp. route caps qrys req resp -> Rec (Query CaptureEncoding) qrys)
@@ -80,7 +80,7 @@ requestWith toMethod toCapEncs toQuerys toReqBody toRespBody prepared =
 -- | Perform n requests and collect the results
 requestManyWith :: forall t m f route response.
   (MonadWidget t m, Traversable f)
-  => (forall caps qrys req resp. route caps qrys req resp -> T.Text)
+  => (forall caps qrys req resp. route caps qrys req resp -> Method)
   -- ^ Get the method from a route
   -> (forall caps qrys req resp. route caps qrys req resp -> Path CaptureEncoding caps)
   -- ^ How to encode the path pieces from a route
@@ -101,7 +101,7 @@ requestManyWith toMethod toCapEncs toQuerys toReqBody toRespBody prepared =
 -- | Very powerful function
 requestMultiWith :: forall t m f route a.
   (MonadWidget t m, Traversable f)
-  => (forall caps qrys req resp. route caps qrys req resp -> T.Text)
+  => (forall caps qrys req resp. route caps qrys req resp -> Method)
   -> (forall caps qrys req resp. route caps qrys req resp -> Path CaptureEncoding caps)
   -> (forall caps qrys req resp. route caps qrys req resp -> Rec (Query CaptureEncoding) qrys)
   -> (forall caps qrys req resp. route caps qrys req resp -> RequestBody (Many BodyEncoding) req)
@@ -116,12 +116,10 @@ requestMultiWith toMethod toCapEncs toQuerys toReqBody toRespBody contResp =
         parseOneXhrResponse (Pair (ResponseHandler (Prepared route _ _ _) _ fromResp)
                             (XhrResponse statusCode _ _ response headers)) =
           case statusCode < 400 of
-            True -> case M.lookup "Content-Type" headers of
+            True -> case M.lookup "Content-Type" headers >>= N.parseAccept . TE.encodeUtf8 of
               Just content -> case response of
                 Just txt -> let bs = LBS.fromStrict (TE.encodeUtf8 txt) in
-                  case decodeResponseBody (toRespBody route) (Content content bs) of
-                    Just a -> Right (fromResp a)
-                    Nothing -> Left (TrasaErr N.status400 "Could not decode resp body")
+                  fromResp <$> decodeResponseBody (toRespBody route) (Content content bs)
                 Nothing -> Left (TrasaErr N.status400 "No body returned from server")
               Nothing -> Left (TrasaErr N.status406 "No content type from server")
             False -> Left (TrasaErr (N.mkStatus (fromIntegral statusCode) (maybe "" TE.encodeUtf8 response)) "")
@@ -129,19 +127,23 @@ requestMultiWith toMethod toCapEncs toQuerys toReqBody toRespBody contResp =
         buildXhrRequests = Preps . fmap buildOneXhrRequest
         buildOneXhrRequest :: ResponseHandler route a -> Pair (ResponseHandler route a) (XhrRequest BS.ByteString)
         buildOneXhrRequest w@(ResponseHandler p@(Prepared route _ _ _) _ _) =
-          Pair w (XhrRequest (toMethod route) (encodeUrl (linkWith toCapEncs toQuerys p)) conf)
-          where conf :: XhrRequestConfig BS.ByteString
-                conf = def & xhrRequestConfig_sendData .~ maybe "" (LBS.toStrict . contentData) content
-                           & xhrRequestConfig_headers .~ headers
-                           & xhrRequestConfig_responseHeaders .~ AllHeaders
-                headers = maybe acceptHeader (\ct -> M.insert "Content-Type" (contentType ct) acceptHeader) content
-                acceptHeader = "Accept" =: T.intercalate ", " (toList accepts)
-                Payload _ content accepts = payloadWith toCapEncs toQuerys toReqBody toRespBody p
+          Pair w (XhrRequest (encodeMethod (toMethod route)) (encodeUrl (linkWith toCapEncs toQuerys p)) conf)
+          where
+            conf :: XhrRequestConfig BS.ByteString
+            conf = def & xhrRequestConfig_sendData .~ maybe "" (LBS.toStrict . contentData) content
+                        & xhrRequestConfig_headers .~ headers
+                        & xhrRequestConfig_responseHeaders .~ AllHeaders
+            -- headers = maybe acceptHeader (\ct -> M.insert "Content-Type" (contentType ct) acceptHeader) content
+            headers = case content of
+              Nothing -> acceptHeader
+              Just (Content typ _) -> M.insert "Content-Type" (TE.decodeUtf8 (N.renderHeader typ)) acceptHeader
+            acceptHeader = "Accept" =: (TE.decodeUtf8 . BS.intercalate ", " . fmap N.renderHeader . toList) accepts
+            Payload _ content accepts = payloadWith toCapEncs toQuerys toReqBody toRespBody p
 
 -- | Used to serve single page apps
 serve :: forall t m route.
   MonadWidget t m
-  => (forall caps qrys req resp. route caps qrys req resp -> T.Text)
+  => (forall caps qrys req resp. route caps qrys req resp -> Method)
   -> (forall caps qrys req resp. route caps qrys req resp -> Path CaptureEncoding caps)
   -> (forall caps qrys req resp. route caps qrys req resp -> Rec (Query CaptureCodec) qrys)
   -> (forall caps qrys req resp. route caps qrys req resp -> RequestBody (Many BodyCodec) req)
