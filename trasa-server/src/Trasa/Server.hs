@@ -22,7 +22,9 @@ import Data.Traversable (for)
 import Data.Functor.Identity
 
 import Network.HTTP.Types.Header (hAccept,hContentType)
-import qualified Network.HTTP.Types.Status as S
+import qualified Network.HTTP.Types.Status as N
+import qualified Network.HTTP.Media.Accept as N
+import qualified Network.HTTP.Media.RenderHeader as N
 import Data.CaseInsensitive (CI)
 import qualified Network.Wai as WAI
 import qualified Data.ByteString as BS
@@ -75,14 +77,14 @@ serveWith
   -> WAI.Application -- ^ WAI Application
 serveWith toQuerys toReqBody toRespBody makeResponse router =
   \req respond ->
-    case TE.decodeUtf8' (WAI.requestMethod req) of
-      Left _ -> respond (WAI.responseLBS S.status400 [] "Non utf8 encoded request method")
+    case decodeMethod <$> TE.decodeUtf8' (WAI.requestMethod req) of
+      Left _ -> respond (WAI.responseLBS N.status400 [] "Non utf8 encoded request method")
       Right method -> case parseHeaders req of
-        Left _ -> respond (WAI.responseLBS S.status400 [] "Non utf8 encoded headers")
+        Left _ -> respond (WAI.responseLBS N.status400 [] "Non utf8 encoded headers")
         Right headers -> case parseAccepts headers of
-          Nothing -> respond (WAI.responseLBS S.status415 [] "Accept header missing")
+          Nothing -> respond (WAI.responseLBS N.status415 [] "Accept header missing or malformed")
           Just accepts -> do
-            content <- for (M.lookup hContentType headers) $ \typ ->
+            content <- for (M.lookup hContentType headers >>= N.parseAccept . TE.encodeUtf8) $ \typ ->
               Content typ <$> WAI.strictRequestBody req
             let url = Url (WAI.pathInfo req) (decodeQuery (WAI.queryString req))
                 dispatch = dispatchWith toQuerys toReqBody toRespBody makeResponse router method accepts url content
@@ -91,9 +93,12 @@ serveWith toQuerys toReqBody toRespBody makeResponse router =
                 Left (TrasaErr stat errBody) ->
                   respond (WAI.responseLBS stat (encodeHeaders newHeaders) errBody)
                 Right (Content typ lbs) -> do
-                  let encodedHeaders = encodeHeaders (M.insert hContentType typ newHeaders)
-                  respond (WAI.responseLBS S.status200 encodedHeaders lbs)
+                  let cType = TE.decodeUtf8 (N.renderHeader typ)
+                      encodedHeaders = encodeHeaders (M.insert hContentType cType newHeaders)
+                  respond (WAI.responseLBS N.status200 encodedHeaders lbs)
   where
     encodeHeaders = M.toList . fmap TE.encodeUtf8
     parseHeaders = traverse TE.decodeUtf8' . M.fromList . WAI.requestHeaders
-    parseAccepts = fmap (fmap T.strip . T.splitOn (T.singleton ',')) . M.lookup hAccept
+    parseAccepts headers = do
+      accept <- M.lookup hAccept headers
+      (traverse N.parseAccept . fmap (TE.encodeUtf8 . T.dropAround (' '==)) . T.splitOn ";") accept

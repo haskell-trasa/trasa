@@ -22,10 +22,13 @@ module Trasa.Core
   , Prepared(..)
   , Concealed(..)
   , Constructed(..)
+  , conceal
   , mapConstructed
   -- * Request Types
   -- ** Method
   , Method(..)
+  , encodeMethod
+  , decodeMethod
   -- ** Queries
   , QueryString(..)
   , encodeQuery
@@ -70,10 +73,14 @@ module Trasa.Core
   , RequestBody(..)
   , body
   , bodyless
+  , encodeRequestBody
+  , decodeRequestBody
   , mapRequestBody
   -- ** Response Body
   , ResponseBody(..)
   , resp
+  , encodeResponseBody
+  , decodeResponseBody
   , mapResponseBody
   -- ** Many
   , Many(..)
@@ -98,10 +105,7 @@ module Trasa.Core
   , ParamBase
   , Arguments
   , handler
-  -- * Random Stuff
-  , conceal
-  , encodeRequestBody
-  , decodeResponseBody
+  -- * Helpers
   , prettyRouter
   ) where
 
@@ -113,7 +117,7 @@ import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List as L
 import qualified Data.List.NonEmpty as NE
 import Data.Foldable (toList)
-import Data.Bifunctor (first)
+import Data.Bifunctor (first,bimap)
 
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Text as T
@@ -303,6 +307,46 @@ encodeRequestBody (RequestBodyPresent (Many encodings)) (RequestBodyPresent (Ide
   case NE.head encodings of
     BodyEncoding names encoding -> Just (Content (NE.head names) (encoding rq))
 
+decodeRequestBody
+  :: RequestBody (Many BodyDecoding) req
+  -> Maybe Content
+  -> Either TrasaErr (RequestBody Identity req)
+decodeRequestBody reqDec mcontent = case reqDec of
+  RequestBodyPresent decs -> case mcontent of
+    Nothing -> wrongBody
+    Just (Content media bod) -> go (toList (getMany decs)) media bod
+  RequestBodyAbsent -> case mcontent of
+    Nothing -> Right RequestBodyAbsent
+    Just _  -> wrongBody
+  where
+    wrongBody = Left (status N.status415)
+    go :: [BodyDecoding a] -> N.MediaType -> LBS.ByteString -> Either TrasaErr (RequestBody Identity (Body a))
+    go [] _ _ = Left (status N.status400) -- TODO: Fix error code
+    go (BodyDecoding medias dec:decs) media bod = case any (N.matches media) medias of
+      True -> bimap (TrasaErr N.status415 . LBS.fromStrict . T.encodeUtf8)
+                    (RequestBodyPresent . Identity)
+                    (dec bod)
+      False -> go decs media bod
+
+encodeResponseBody
+  :: forall response
+  .  [N.MediaType]
+  -> ResponseBody (Many BodyEncoding) response
+  -> response
+  -> Either TrasaErr Content
+encodeResponseBody medias (ResponseBody encs) res = go (toList (getMany encs))
+  where
+    go :: [BodyEncoding response] -> Either TrasaErr Content
+    go [] = Left (status N.status406)
+    go (BodyEncoding accepts e:es) = case acceptable (toList accepts) medias of
+      Just typ -> Right (Content typ (e res))
+      Nothing  -> go es
+    acceptable :: [N.MediaType] -> [N.MediaType] -> Maybe N.MediaType
+    acceptable [] _ = Nothing
+    acceptable (a:as) ms = case any (N.matches a) ms of
+      True  -> Just a
+      False -> acceptable as ms
+
 decodeResponseBody :: ResponseBody (Many BodyDecoding) response -> Content -> Either TrasaErr response
 decodeResponseBody (ResponseBody (Many decodings)) (Content name content) = go (toList decodings)
   where
@@ -358,18 +402,10 @@ dispatchWith :: forall route m.
   -> Maybe Content -- ^ Content type and request body
   -> m (Either TrasaErr Content) -- ^ Encoded response
 dispatchWith toQueries toReqBody toRespBody makeResponse router method accepts url mcontent =
-  sequenceA $ do
-    Concealed route decodedPathPieces decodedQueries decodedRequestBody <-
-      parseWith toQueries toReqBody router method url mcontent
-    let response = makeResponse route decodedPathPieces decodedQueries decodedRequestBody
-        ResponseBody (Many encodings) = toRespBody route
-    (encode,typ) <- mapFindE (status N.status406)
-      (\(BodyEncoding names encode) -> case mapFind (\x -> if elem x accepts then Just x else Nothing) names of
-        Just name -> Just (encode,name)
-        Nothing -> Nothing
-      )
-      encodings
-    Right (fmap (Content typ . encode) response)
+  case parseWith toQueries toReqBody router method url mcontent of
+    Left err -> pure (Left err)
+    Right (Concealed route path querys reqBody) ->
+      encodeResponseBody accepts (toRespBody route) <$> makeResponse route path querys reqBody
 
 -- | Build a router from all the possible routes, and methods to turn routes into needed metadata
 routerWith ::
@@ -396,19 +432,8 @@ parseWith toQueries toReqBody router method (Url encodedPath encodedQuery) mcont
   Pathed route captures <- maybe (Left (status N.status404)) Right
     $ parsePathWith router method encodedPath
   querys <- parseQueryWith (toQueries route) encodedQuery
-  decodedRequestBody <- case toReqBody route of
-    RequestBodyPresent (Many decodings) -> case mcontent of
-      Just (Content typ encodedRequest) -> do
-        decode <- mapFindE (status N.status415) (\(BodyDecoding names decode) -> if elem typ names then Just decode else Nothing) decodings
-        reqVal <- badReq (decode encodedRequest)
-        Right (RequestBodyPresent (Identity reqVal))
-      Nothing -> Left (status N.status415)
-    RequestBodyAbsent -> case mcontent of
-      Just _ -> Left (status N.status415)
-      Nothing -> Right RequestBodyAbsent
-  return (Concealed route captures querys decodedRequestBody)
-  where badReq :: Either T.Text b -> Either TrasaErr b
-        badReq = first (TrasaErr N.status400 . LBS.fromStrict . T.encodeUtf8)
+  reqBody <- decodeRequestBody (toReqBody route) mcontent
+  return (Concealed route captures querys reqBody)
 
 -- | Parses only the path.
 parsePathWith :: forall route.
@@ -615,14 +640,6 @@ data Content = Content
   { contentType :: N.MediaType
   , contentData :: LBS.ByteString
   } deriving (Show,Eq,Ord)
-
-mapFind :: Foldable f => (a -> Maybe b) -> f a -> Maybe b
-mapFind f = listToMaybe . mapMaybe f . toList
-
-mapFindE :: Foldable f => e -> (a -> Maybe b) -> f a -> Either e b
-mapFindE e f = listToEither . mapMaybe f . toList
-  where listToEither [] = Left e
-        listToEither (x:_) = Right x
 
 -- | Only promoted version used.
 data Nat = S !Nat | Z

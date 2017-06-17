@@ -7,6 +7,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 import Trasa.Core
+import qualified Trasa.Method as M
 import Trasa.Server
 import Data.Vinyl
 import Data.Functor.Identity
@@ -29,7 +30,7 @@ main = do
   withApplication (return app) $ \port -> do
     manager <- HC.newManager HC.defaultManagerSettings
     attempt manager ("GET http://127.0.0.1:" ++ show port ++ "/") $ \x -> x
-      { HC.requestHeaders = [("Accept","text/plain"),("ContentType","text/plain")]
+      { HC.requestHeaders = [("Accept","text/plain"),("ContentType","*/*")]
       }
     attempt manager ("GET http://127.0.0.1:" ++ show port ++ "/hello") $ \x -> x
       { HC.requestHeaders = [("Accept","text/plain"),("ContentType","text/plain")]
@@ -71,11 +72,11 @@ parse url = parseWith
   (mapQuery captureCodecToCaptureDecoding . metaQuery . meta)
   (mapRequestBody (Many . pure . bodyCodecToBodyDecoding) . metaRequestBody . meta)
   router
-  "GET"
+  M.get
   (decodeUrl url)
 
 allRoutes :: [Constructed Route]
-allRoutes = 
+allRoutes =
   [ Constructed HelloR
   , Constructed AdditionR
   , Constructed IdentityR
@@ -96,7 +97,7 @@ data Meta ps qs rq rp = Meta
   , metaQuery :: Rec (Query CaptureCodec) qs
   , metaRequestBody :: RequestBody BodyCodec rq
   , metaResponseBody :: ResponseBody BodyCodec rp
-  , metaMethod :: T.Text
+  , metaMethod :: Method
   }
 
 meta :: Route ps qs rq rp -> Meta ps qs rq rp
@@ -104,31 +105,31 @@ meta x = case x of
   EmptyR -> Meta
     end
     qend
-    bodyless (resp bodyInt) "GET"
+    bodyless (resp bodyInt) M.get
   HelloR -> Meta
     (match "hello" ./ end)
     qend
-    bodyless (resp bodyInt) "GET"
+    bodyless (resp bodyInt) M.get
   AdditionR -> Meta
     (match "add" ./ capture int ./ capture int ./ end)
     (optional "more" int .& qend)
-    bodyless (resp bodyInt) "GET"
+    bodyless (resp bodyInt) M.get
   IdentityR -> Meta
     (match "identity" ./ capture string ./ end)
     qend
-    bodyless (resp bodyString) "GET"
+    bodyless (resp bodyString) M.get
   LeftPadR -> Meta
     (match "pad" ./ match "left" ./ capture int ./ end)
     qend
-    (body bodyString) (resp bodyString) "GET"
+    (body bodyString) (resp bodyString) M.get
   TrickyOneR -> Meta
     (match "tricky" ./ capture int ./ match "one" ./ end)
     qend
-    bodyless (resp bodyString) "GET"
+    bodyless (resp bodyString) M.get
   TrickyTwoR -> Meta
     (capture int ./ capture int ./ match "two" ./ end)
     qend
-    bodyless (resp bodyString) "GET"
+    bodyless (resp bodyString) M.get
 
 
 int :: CaptureCodec Int

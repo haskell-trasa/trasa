@@ -7,6 +7,7 @@ module Trasa.Method
   -- * Method
     Method(..)
   , encodeMethod
+  , decodeMethod
   -- * Convenience pre defined methods
   , get
   , post
@@ -22,7 +23,7 @@ module Trasa.Method
 import Prelude hiding (head)
 import Data.Hashable(Hashable(..))
 import Data.String (IsString(..))
-import Data.CaseInsensitive (CI,foldedCase)
+import Data.CaseInsensitive (CI,foldedCase,mk)
 import qualified Data.Text as T
 
 newtype Method = Method
@@ -31,6 +32,9 @@ newtype Method = Method
 
 encodeMethod :: Method -> T.Text
 encodeMethod = foldedCase . unMethod
+
+decodeMethod :: T.Text -> Method
+decodeMethod = Method . mk
 
 get :: Method
 get = "GET"
