@@ -106,7 +106,7 @@ clientWith toMethod toCapEnc toQuerys toReqBody toRespBody config =
       where
         Config (Authority scheme host port) manager = config
         req = N.defaultRequest
-          { N.method = TE.encodeUtf8 (encodeMethod method)
+          { N.method = TE.encodeUtf8 $ encodeMethod method
           , N.secure = schemeToSecure scheme
           , N.host = encodeAuthority host port
           , N.port = maybe (schemeToPort scheme) fromIntegral port

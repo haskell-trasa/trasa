@@ -14,7 +14,7 @@ import qualified Data.Text as T
 
 import Data.Vinyl (Rec)
 import Trasa.Core
-
+import qualified Trasa.Method as M
 newtype Key = Key Int deriving (Enum, Eq, Ord)
 
 instance Show Key where
@@ -45,16 +45,16 @@ data Meta ps qs rq rp = Meta
   , metaQuery :: Rec (Query CaptureCodec) qs
   , metaRequestBody :: RequestBody BodyCodec rq
   , metaResponseBody :: ResponseBody BodyCodec rp
-  , metaMethod :: T.Text
+  , metaMethod :: Method
   }
 
 meta :: Route ps qs rq rp -> Meta ps qs rq rp
 meta = \case
-  AddR -> Meta (match "add" ./ end) qend (body bodyPerson) (resp bodyKey) "POST"
-  EditR -> Meta (match "edit" ./ capture key ./ end) qend (body bodyPerson) (resp bodyUnit) "PUT"
-  DeleteR -> Meta (match "delete" ./ capture key ./ end) qend bodyless (resp bodyUnit) "DELETE"
-  ViewR -> Meta (match "view" ./ capture key ./ end) qend bodyless (resp bodyPerson) "GET"
-  ViewAllR -> Meta (match "view-all" ./ end) (optional "limit" int .& qend) bodyless (resp bodyKeyed) "GET"
+  AddR -> Meta (match "add" ./ end) qend (body bodyPerson) (resp bodyKey) M.post
+  EditR -> Meta (match "edit" ./ capture key ./ end) qend (body bodyPerson) (resp bodyUnit) M.put
+  DeleteR -> Meta (match "delete" ./ capture key ./ end) qend bodyless (resp bodyUnit) M.delete
+  ViewR -> Meta (match "view" ./ capture key ./ end) qend bodyless (resp bodyPerson) M.get
+  ViewAllR -> Meta (match "view-all" ./ end) (optional "limit" int .& qend) bodyless (resp bodyKeyed) M.get
 
 key :: CaptureCodec Key
 key = showReadCaptureCodec

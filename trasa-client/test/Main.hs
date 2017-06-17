@@ -51,7 +51,7 @@ int :: CaptureCodec Int
 int = showReadCaptureCodec
 
 bodyUnit :: BodyCodec ()
-bodyUnit = BodyCodec (pure "text/html; charset=utf-8") (const "") (const (Right ()))
+bodyUnit = BodyCodec (pure "text/html") (const "") (const (Right ()))
 
 data Route :: [Type] -> [Param] -> Bodiedness -> Type -> Type where
   RouteHome :: Route '[] '[] Bodyless ()
@@ -104,7 +104,9 @@ main = do
   let conf = Config (Authority Http "httpbin.org" Nothing) manager
   res <- catch (client conf (prepare RouteHome)) $ \(_ :: SomeException) -> return (Left (status N.status400))
   case res of
-    Left _  -> putStrLn "Could not connect to httpbin.org, not running test suite"
+    Left err  -> do
+      putStrLn "Could not connect to httpbin.org, not running test suite"
+      putStrLn ("Could not connect because: " ++ show err)
     Right _ -> do
       putStrLn "Connected to httpbin.org, actually testing routes now..."
       shouldRight conf (prepare RouteIp)

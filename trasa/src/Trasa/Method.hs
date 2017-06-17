@@ -5,7 +5,7 @@
 module Trasa.Method
   (
   -- * Method
-    Method(..)
+    Method
   , encodeMethod
   , decodeMethod
   -- * Convenience pre defined methods
@@ -23,18 +23,22 @@ module Trasa.Method
 import Prelude hiding (head)
 import Data.Hashable(Hashable(..))
 import Data.String (IsString(..))
-import Data.CaseInsensitive (CI,foldedCase,mk)
 import qualified Data.Text as T
 
-newtype Method = Method
-  { unMethod :: CI T.Text
-  } deriving (Hashable,Eq,Ord,Show,IsString)
+newtype Method = Method T.Text
+  deriving (Hashable,Eq,Ord)
+
+instance Show Method where
+  show = show . encodeMethod
+
+instance IsString Method where
+  fromString = decodeMethod . T.pack
 
 encodeMethod :: Method -> T.Text
-encodeMethod = foldedCase . unMethod
+encodeMethod (Method txt) = txt
 
 decodeMethod :: T.Text -> Method
-decodeMethod = Method . mk
+decodeMethod = Method . T.toUpper
 
 get :: Method
 get = "GET"

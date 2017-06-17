@@ -26,7 +26,7 @@ module Trasa.Core
   , mapConstructed
   -- * Request Types
   -- ** Method
-  , Method(..)
+  , Method
   , encodeMethod
   , decodeMethod
   -- ** Queries
@@ -130,10 +130,10 @@ import Data.HashMap.Strict (HashMap)
 import Data.Vinyl (Rec(..),rmap)
 import Data.Vinyl.TypeLevel (type (++))
 
-import Trasa.Method as X
-import Trasa.Url as X
-import Trasa.Error as X
-import Trasa.Codec as X
+import Trasa.Method
+import Trasa.Url
+import Trasa.Error
+import Trasa.Codec
 
 -- $setup
 -- >>> :set -XTypeInType
@@ -321,8 +321,8 @@ decodeRequestBody reqDec mcontent = case reqDec of
   where
     wrongBody = Left (status N.status415)
     go :: [BodyDecoding a] -> N.MediaType -> LBS.ByteString -> Either TrasaErr (RequestBody Identity (Body a))
-    go [] _ _ = Left (status N.status400) -- TODO: Fix error code
-    go (BodyDecoding medias dec:decs) media bod = case any (N.matches media) medias of
+    go [] _ _ = Left (status N.status400)
+    go (BodyDecoding medias dec:decs) media bod = case any (flip N.matches media) medias of
       True -> bimap (TrasaErr N.status415 . LBS.fromStrict . T.encodeUtf8)
                     (RequestBodyPresent . Identity)
                     (dec bod)
