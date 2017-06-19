@@ -599,7 +599,7 @@ data Constructed :: ([Type] -> [Param] -> Bodiedness -> Type -> Type) -> Type wh
 -- Think, think, think.
 
 mapConstructed ::
-     (forall caps qrys req resp. sub caps qrys req resp -> route cap qrys req resp)
+     (forall caps qrys req resp. sub caps qrys req resp -> route caps qrys req resp)
   -> Constructed sub
   -> Constructed route
 mapConstructed f (Constructed sub) = Constructed (f sub)
