@@ -21,12 +21,7 @@ import qualified Network.HTTP.Client as HC
 main :: IO ()
 main = do
   putStrLn "\nStarting trasa server test suite"
-  let app = serveWith
-        (mapQuery captureCodecToCaptureDecoding . metaQuery . meta)
-        (mapRequestBody (Many . pure . bodyCodecToBodyDecoding) . metaRequestBody . meta)
-        (mapResponseBody (Many . pure . bodyCodecToBodyEncoding) . metaResponseBody . meta)
-        handle
-        router
+  let app = serveWith (metaCodecToMetaServer . meta) handle router
   withApplication (return app) $ \port -> do
     manager <- HC.newManager HC.defaultManagerSettings
     attempt manager ("GET http://127.0.0.1:" ++ show port ++ "/") $ \x -> x
@@ -58,22 +53,14 @@ data Route :: [Type] -> [Param] -> Bodiedness -> Type -> Type where
   TrickyOneR :: Route '[Int] '[] Bodyless String
   TrickyTwoR :: Route '[Int,Int] '[] Bodyless String
 
-
 prepare :: Route cs qs rq rp -> Arguments cs qs rq (Prepared Route rp)
-prepare = prepareWith (metaPath . meta) (metaQuery . meta) (metaRequestBody . meta)
+prepare = prepareWith meta
 
 link :: Prepared Route rp -> Url
-link = linkWith
-  (mapPath (CaptureEncoding . captureCodecEncode) . metaPath . meta)
-  (mapQuery captureCodecToCaptureEncoding . metaQuery . meta)
+link = linkWith (metaCodecToMetaClient . meta)
 
 parse :: T.Text -> Maybe Content -> Either TrasaErr (Concealed Route)
-parse url = parseWith
-  (mapQuery captureCodecToCaptureDecoding . metaQuery . meta)
-  (mapRequestBody (Many . pure . bodyCodecToBodyDecoding) . metaRequestBody . meta)
-  router
-  M.get
-  (decodeUrl url)
+parse url = parseWith (metaCodecToMetaServer . meta) router M.get (decodeUrl url)
 
 allRoutes :: [Constructed Route]
 allRoutes =
@@ -87,21 +74,10 @@ allRoutes =
   ]
 
 router :: Router Route
-router = routerWith
-  (metaMethod . meta)
-  (mapPath (CaptureDecoding . captureCodecDecode) . metaPath . meta)
-  allRoutes
+router = routerWith (metaCodecToMetaServer . meta) allRoutes
 
-data Meta ps qs rq rp = Meta
-  { metaPath :: Path CaptureCodec ps
-  , metaQuery :: Rec (Query CaptureCodec) qs
-  , metaRequestBody :: RequestBody BodyCodec rq
-  , metaResponseBody :: ResponseBody BodyCodec rp
-  , metaMethod :: Method
-  }
-
-meta :: Route ps qs rq rp -> Meta ps qs rq rp
-meta x = case x of
+meta :: Route ps qs rq rp -> MetaCodec ps qs rq rp
+meta route = metaBuilderToMetaCodec $ case route of
   EmptyR -> Meta
     end
     qend
