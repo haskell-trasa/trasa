@@ -47,7 +47,7 @@ schemeToPort = \case
 data Authority = Authority
   { authorityScheme :: !Scheme
   , authorityHost :: !T.Text
-  , authorityPort :: Maybe Word16
+  , authorityPort :: !(Maybe Word16)
   }
 
 encodeAuthority :: T.Text -> Maybe Word16 -> BS.ByteString
@@ -69,27 +69,19 @@ encodeAcceptBS :: NE.NonEmpty N.MediaType -> BS.ByteString
 encodeAcceptBS = BS.intercalate "; " . fmap N.renderHeader . NE.toList
 
 data Config = Config
-  { configAuthority :: Authority
+  { configAuthority :: !Authority
   , configManager :: !N.Manager
   }
 
-clientWith :: forall route response.
-     (forall caps qrys req resp. route caps qrys req resp -> Method)
-  -- ^ Get the method out of the route
-  -> (forall caps qrys req resp. route caps qrys req resp -> Path CaptureEncoding caps)
-  -- ^ Get a way to encode paths from a route
-  -> (forall caps qrys req resp. route caps qrys req resp -> Rec (Query CaptureEncoding) qrys)
-  -- ^ Get a way to encode query params from a route
-  -> (forall caps qrys req resp. route caps qrys req resp -> RequestBody (Many BodyEncoding) req)
-  -- ^ Get a way to encode request bodies from a route
-  -> (forall caps qrys req resp. route caps qrys req resp -> ResponseBody (Many BodyDecoding) resp)
-  -- ^ Get a way to encode response bodies from a route
+clientWith
+  :: forall route response
+  .  (forall caps qrys req resp. route caps qrys req resp -> MetaClient caps qrys req resp)
   -> Config
   -> Prepared route response
   -- ^ Which endpoint to request
   -> IO (Either TrasaErr response)
-clientWith toMethod toCapEnc toQuerys toReqBody toRespBody config =
-  requestWith toMethod toCapEnc toQuerys toReqBody toRespBody run
+clientWith toMeta config =
+  requestWith toMeta run
   where
     run :: Method -> Url -> Maybe Content -> NE.NonEmpty N.MediaType -> IO (Either TrasaErr Content)
     run method (Url path query) mcontent accepts  = do

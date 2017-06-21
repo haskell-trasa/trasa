@@ -59,35 +59,21 @@ data Route :: [Type] -> [Param] -> Bodiedness -> Type -> Type where
   RouteStatus :: Route '[Int] '[] Bodyless ()
   RouteQuery :: Route '[] '[Optional Int] Bodyless Args
 
-data Meta caps qrys req resp = Meta
-  { metaPath :: Path CaptureCodec caps
-  , metaQuery :: Rec (Query CaptureCodec) qrys
-  , metaRequestBody :: RequestBody BodyCodec req
-  , metaResponseBody :: ResponseBody BodyCodec resp
-  , metaMethod :: Method }
-
-meta :: Route caps qrys req resp -> Meta caps qrys req resp
-meta = \case
+meta :: Route caps qrys req resp -> MetaCodec caps qrys req resp
+meta route = metaBuilderToMetaCodec $ case route of
   RouteHome -> Meta end qend bodyless (resp bodyUnit) M.get
   RouteIp -> Meta (match "ip" ./ end) qend bodyless (resp bodyAeson) M.get
   RouteStatus -> Meta (match "status" ./ capture int ./ end) qend bodyless (resp bodyUnit) M.get
   RouteQuery -> Meta (match "anything" ./ end) (optional "int" int .& qend) bodyless (resp bodyAeson) M.get
 
 prepare :: Route caps qrys req resp -> Arguments caps qrys req (Prepared Route resp)
-prepare = prepareWith (metaPath . meta) (metaQuery . meta) (metaRequestBody . meta)
+prepare = prepareWith meta
 
 link :: Prepared Route resp -> Url
-link = linkWith
-  (mapPath captureCodecToCaptureEncoding . metaPath . meta)
-  (mapQuery captureCodecToCaptureEncoding . metaQuery . meta)
+link = linkWith (metaCodecToMetaClient . meta)
 
 client :: Config -> Prepared Route resp -> IO (Either TrasaErr resp)
-client = clientWith
-  (metaMethod . meta)
-  (mapPath captureCodecToCaptureEncoding . metaPath . meta)
-  (mapQuery captureCodecToCaptureEncoding . metaQuery . meta)
-  (mapRequestBody (Many . pure . bodyCodecToBodyEncoding) . metaRequestBody . meta)
-  (mapResponseBody (Many . pure . bodyCodecToBodyDecoding) . metaResponseBody . meta)
+client = clientWith (metaCodecToMetaClient . meta)
 
 shouldRight :: Show resp => Config -> Prepared Route resp -> IO ()
 shouldRight conf route = do
