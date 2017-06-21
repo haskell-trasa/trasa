@@ -88,6 +88,8 @@ module Trasa.Core
   , mapMany
   -- ** Meta
   , Meta(..)
+  , MetaBuilder
+  , metaBuilderToMetaCodec
   , MetaCodec
   , MetaClient
   , metaCodecToMetaClient
@@ -250,12 +252,22 @@ mapQuery eta = rmap $ \case
   QueryList key query -> QueryList key (eta query)
 
 data Meta capCodec qryCodec reqCodec respCodec caps qrys req resp = Meta
-  { metaPath :: Path capCodec caps
-  , metaQuery :: Rec (Query qryCodec) qrys
-  , metaRequestBody :: RequestBody reqCodec req
-  , metaResponseBody :: ResponseBody respCodec resp
-  , metaMethod :: Method
+  { metaPath :: !(Path capCodec caps)
+  , metaQuery :: !(Rec (Query qryCodec) qrys)
+  , metaRequestBody :: !(RequestBody reqCodec req)
+  , metaResponseBody :: !(ResponseBody respCodec resp)
+  , metaMethod :: !Method
   }
+
+type MetaBuilder = Meta CaptureCodec CaptureCodec BodyCodec BodyCodec
+
+metaBuilderToMetaCodec :: MetaBuilder caps qrys req resp -> MetaCodec caps qrys req resp
+metaBuilderToMetaCodec (Meta path query reqBody respBody method) = Meta
+  path
+  query
+  (mapRequestBody one reqBody)
+  (mapResponseBody one respBody)
+  method
 
 type MetaCodec = Meta CaptureCodec CaptureCodec (Many BodyCodec) (Many BodyCodec)
 
@@ -263,21 +275,21 @@ type MetaClient = Meta CaptureEncoding CaptureEncoding (Many BodyEncoding) (Many
 
 metaCodecToMetaClient :: MetaCodec caps qrys req resp -> MetaClient caps qrys req resp
 metaCodecToMetaClient (Meta path query reqBody respBody method) = Meta
-    (mapPath captureCodecToCaptureEncoding path)
-    (mapQuery captureCodecToCaptureEncoding query)
-    (mapRequestBody (mapMany bodyCodecToBodyEncoding) reqBody)
-    (mapResponseBody (mapMany bodyCodecToBodyDecoding) respBody)
-    method
+  (mapPath captureCodecToCaptureEncoding path)
+  (mapQuery captureCodecToCaptureEncoding query)
+  (mapRequestBody (mapMany bodyCodecToBodyEncoding) reqBody)
+  (mapResponseBody (mapMany bodyCodecToBodyDecoding) respBody)
+  method
 
 type MetaServer = Meta CaptureDecoding CaptureDecoding (Many BodyDecoding) (Many BodyEncoding)
 
 metaCodecToMetaServer :: MetaCodec caps qrys req resp -> MetaServer caps qrys req resp
 metaCodecToMetaServer (Meta path query reqBody respBody method) = Meta
-    (mapPath captureCodecToCaptureDecoding path)
-    (mapQuery captureCodecToCaptureDecoding query)
-    (mapRequestBody (mapMany bodyCodecToBodyDecoding) reqBody)
-    (mapResponseBody (mapMany bodyCodecToBodyEncoding) respBody)
-    method
+  (mapPath captureCodecToCaptureDecoding path)
+  (mapQuery captureCodecToCaptureDecoding query)
+  (mapRequestBody (mapMany bodyCodecToBodyDecoding) reqBody)
+  (mapResponseBody (mapMany bodyCodecToBodyEncoding) respBody)
+  method
 
 -- | Generate a @Url@ for use in hyperlinks.
 linkWith

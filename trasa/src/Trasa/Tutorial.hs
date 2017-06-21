@@ -36,13 +36,6 @@ import Data.Text (Text)
 --   IncrementR :: Route '[Counter] '[] 'Bodyless Int
 --   QueryR :: Route '[Counter] '[]Bodyless Int
 --   TotalR :: Route '[] '[] 'Bodyless Int
--- data Meta captures querys request response = Meta
---   { metaPath :: Path CaptureCodec captures
---   , metaQuery :: Rec (Query CaptureCodec) querys
---   , metaRequestBody :: RequestBody BodyCodec request
---   , metaResponseBody :: ResponseBody BodyCodec response
---   , metaMethod :: Method
---   }
 -- int :: CaptureCodec Int
 -- int = showReadCaptureCodec
 -- counter :: CaptureCodec Counter
@@ -51,8 +44,8 @@ import Data.Text (Text)
 -- bodyUnit = BodyCodec (pure "text/plain") (const "") (const (Right ()))
 -- bodyInt :: BodyCodec Int
 -- bodyInt = showReadBodyCodec
--- meta :: Route captures querys request response -> Meta captures querys request response
--- meta x = case x of
+-- meta :: Route captures querys request response -> MetaCodec captures querys request response
+-- meta x = metaBuilderToMetaCodec $ case x of
 --   AssignR -> Meta
 --     (match "assign" ./ capture counter ./ match "to" ./ capture int ./ end)
 --     qend
@@ -75,14 +68,13 @@ import Data.Text (Text)
 -- @trasa@ exports and partially apply them to the route metadata that
 -- we have created. We can start with prepare and link:
 --
--- >>> prepare = prepareWith (metaPath . meta) (metaQuery . meta) (metaRequestBody . meta)
+-- >>> prepare = prepareWith meta
 -- >>> :t prepare
 -- prepare
 --   :: Route captures query request response
 --      -> Arguments captures query request (Prepared Route response)
 -- >>> :{
--- link = linkWith (mapPath captureCodecToCaptureEncoding . metaPath . meta)
---                 (mapQuery captureCodecToCaptureEncoding . metaQuery . meta)
+-- link = linkWith (metaCodecToMetaClient . meta)
 -- :}
 --
 -- >>> :t link
