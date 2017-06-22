@@ -1,13 +1,14 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE DataKinds #-}
 module Trasa.TH where
 
 import Data.Kind (Type)
+import Data.Maybe (listToMaybe,mapMaybe)
 import Language.Haskell.TH hiding (Type)
 import qualified Language.Haskell.TH as TH
-import Data.Maybe (listToMaybe)
 import Trasa.Core
 
 data CodecRep = CodecRep
@@ -16,28 +17,35 @@ data CodecRep = CodecRep
   , codecRepType :: TH.Type
   }
 
-data ParamRep
-  = ParamRepFlag
-  | ParamRepOptional CodecRep
-  | ParamRepList CodecRep
+data CaptureRep codecRep
+  = MatchRep String
+  | CaptureRep codecRep
+  deriving (Foldable,Functor,Traversable)
 
-data QueryRep = QueryRep
+data ParamRep codecRep
+  = FlagRep
+  | OptionalRep codecRep
+  | ListRep codecRep
+  deriving (Foldable,Functor,Traversable)
+
+data QueryRep codecRep = QueryRep
   { queryRepKey :: String
-  , queryRepParam :: ParamRep
-  }
+  , queryRepParam :: ParamRep codecRep
+  } deriving (Foldable,Functor,Traversable)
 
-data BodiednessRep
-  = BodyRep CodecRep
+data BodiednessRep codecRep
+  = BodyRep codecRep
   | BodylessRep
+  deriving (Foldable,Functor,Traversable)
 
-data RouteRep = RouteRep
+data RouteRep codecRep = RouteRep
   { routeRepName :: String
   , routeRepMethod :: String
-  , routeRepCaptures :: [CodecRep]
-  , routeRepQueries :: [ParamRep]
-  , routeReqRequest :: BodiednessRep
-  , routeReqResponse :: CodecRep
-  }
+  , routeRepCaptures :: [CaptureRep codecRep]
+  , routeRepQueries :: [QueryRep codecRep]
+  , routeReqRequest :: BodiednessRep codecRep
+  , routeReqResponse :: codecRep
+  } deriving (Foldable,Functor,Traversable)
 
 genCodec :: Name -> Q CodecRep
 genCodec name = reify name >>= \case
@@ -46,86 +54,119 @@ genCodec name = reify name >>= \case
     _ -> fail ("Codec: " ++ show name ++ " does not have a type like (Codec Type) but has the type: " ++ show fullType)
   _ -> fail ("Codec: " ++ show name ++ " is not a haskell value")
 
-routeKind :: Q TH.Type
-routeKind = [t| [Type] -> [Param] -> Bodiedness -> Type -> Type |]
-
 typeList :: [TH.Type] -> TH.Type
 typeList = foldr (\typ rest -> PromotedConsT `AppT` typ `AppT` rest) PromotedNilT
 
-routeType :: [RouteRep] -> Q Dec
+routeType :: [RouteRep CodecRep] -> Q Dec
 routeType routeReps = do
   let route = mkName "Route"
-  kind <- routeKind
+  kind <- [t| [Type] -> [Param] -> Bodiedness -> Type -> Type |]
   return (DataD [] route [] (Just kind) (fmap (buildCons route) routeReps) [])
   where
-    buildCons :: Name -> RouteRep -> Con
+    buildCons :: Name -> RouteRep CodecRep -> Con
     buildCons route (RouteRep name _ captures queries request response) = GadtC [mkName name] [] typ
       where
        typ =
         ConT route `AppT`
-        typeList (fmap codecRepType captures) `AppT`
-        typeList (fmap queryRepToParam queries) `AppT`
+        typeList (mapMaybe captureType captures) `AppT`
+        typeList (fmap (paramType . queryRepParam) queries) `AppT`
         bodiednessRepToBodiedness request `AppT`
         codecRepType response
-    queryRepToParam :: ParamRep -> TH.Type
-    queryRepToParam = \case
-      ParamRepFlag -> PromotedT (mkName "Flag")
-      ParamRepOptional (CodecRep _ _ typ) -> PromotedT (mkName "Optional") `AppT` typ
-      ParamRepList (CodecRep _ _ typ) -> PromotedT (mkName "List") `AppT` typ
-    bodiednessRepToBodiedness :: BodiednessRep -> TH.Type
+    captureType :: CaptureRep CodecRep -> Maybe TH.Type
+    captureType = \case
+      MatchRep _ -> Nothing
+      CaptureRep (CodecRep _ _ typ) -> Just typ
+    paramType :: ParamRep CodecRep -> TH.Type
+    paramType = \case
+      FlagRep -> PromotedT (mkName "Flag")
+      OptionalRep (CodecRep _ _ typ) -> PromotedT (mkName "Optional") `AppT` typ
+      ListRep (CodecRep _ _ typ) -> PromotedT (mkName "List") `AppT` typ
+    bodiednessRepToBodiedness :: BodiednessRep CodecRep -> TH.Type
     bodiednessRepToBodiedness = \case
       BodyRep (CodecRep _ _ typ) -> PromotedT (mkName "Body") `AppT` typ
       BodylessRep -> PromotedT (mkName "Bodyless")
 
-constructeds :: [RouteRep] -> Q [Dec]
-constructeds routeReps = do
-  constructedType <- [t| Constructed |]
+enumRoutesInstance :: [RouteRep CodecRep] -> Q Dec
+enumRoutesInstance routeReps = do
   constructedData <- [| Constructed |]
-  let typ = ListT `AppT` (constructedType `AppT` ConT (mkName "Route"))
-      allRoutes = mkName "allRoutes"
+  let typ = ConT (mkName "EnumerableRoute") `AppT` ConT (mkName "Route")
+      enumRoutes = mkName "enumerateRoutes"
       buildCons name = constructedData `AppE` ConE (mkName name)
       expr = fmap (buildCons . routeRepName) routeReps
-  return [SigD allRoutes typ,FunD allRoutes [Clause [] (NormalB (ListE expr)) []]]
+  return (InstanceD Nothing [] typ [FunD enumRoutes [Clause [] (NormalB (ListE expr)) []]])
 
-
-metaType :: [RouteRep] -> Q Dec
-metaType routeReps = do
-  hlist <- [t| [Type] |]
-  param <- [t| [Param] |]
-  bodiedness <- [t| Bodiedness |]
-  let pathCodec = search routeRepCaptures (Just . codecRepCodec) [t| CaptureCodec |]
-  path <- [t| Path $(pathCodec) $(varT (mkName "caps")) |]
-  let queryCodec = search routeRepQueries paramCodec [t| CaptureCodec |]
-  qrys <- [t| Rec (Query $(queryCodec)) $(varT (mkName "qrys")) |]
-  let typeVars =
-        [ KindedTV (mkName "caps") hlist
-        , KindedTV (mkName "qrys") param
-        , KindedTV (mkName "req") bodiedness
-        , KindedTV (mkName "resp") StarT
+metaInstance :: [RouteRep CodecRep] -> Q Dec
+metaInstance routeReps = do
+  let route = mkName "Route"
+      typ = ConT (mkName "HasMeta") `AppT` ConT route
+  capStrat <- search routeRepCaptures captureCodec [t| CaptureCodec |]
+  qryStrat <- search routeRepQueries (paramCodec . queryRepParam) [t| CaptureCodec |]
+  reqBodyStrat <- search ((:[]) .routeReqRequest) bodyCodec [t| BodyCodec |]
+  respBodyStrat <- search ((:[]) . routeReqResponse) (Just . codecRepCodec) [t| BodyCodec |]
+  let mkTypeFamily str strat = TySynInstD (mkName str) (TySynEqn [ConT route] strat)
+      typeFamilies =
+        [ mkTypeFamily "CaptureStrategy" capStrat
+        , mkTypeFamily "QueryStrategy" qryStrat
+        , mkTypeFamily "RequestBodyStrategy" reqBodyStrat
+        , mkTypeFamily "ResponseBodyStrategy" respBodyStrat
         ]
-      strict = Bang NoSourceUnpackedness SourceStrict
-      fields =
-        [ (mkName "metaPath",strict,path)
-        , (mkName "metaQuery",strict,qrys)]
-      con = RecC (mkName "Meta") fields
-  return (DataD [] (mkName "Meta") typeVars Nothing [con] [])
+  lam <- newName "route"
+  let metaExp = LamE [VarP lam] (CaseE (VarE lam) (fmap routeRepToMetaPattern routeReps))
+      metaFunction = FunD (mkName "meta") [Clause [] (NormalB metaExp) []]
+  return (InstanceD Nothing [] typ (typeFamilies ++ [metaFunction]))
   where
-    search :: (RouteRep -> [b]) -> (b -> Maybe TH.Type) -> Q TH.Type -> Q TH.Type
+    search :: (RouteRep CodecRep -> [b]) -> (b -> Maybe TH.Type) -> Q TH.Type -> Q TH.Type
     search f g err = case listToMaybe routeReps >>= \b -> listToMaybe (f b) >>= g of
       Just t -> return t
       Nothing -> err
-    paramCodec :: ParamRep -> Maybe TH.Type
+    captureCodec :: CaptureRep CodecRep -> Maybe TH.Type
+    captureCodec = \case
+      MatchRep _ -> Nothing
+      CaptureRep (CodecRep _ codec _) -> Just codec
+    paramCodec :: ParamRep CodecRep -> Maybe TH.Type
     paramCodec = \case
-      ParamRepFlag -> Nothing
-      ParamRepOptional (CodecRep _ codec _) -> Just codec
-      ParamRepList (CodecRep _ codec _) -> Just codec
+      FlagRep -> Nothing
+      OptionalRep (CodecRep _ codec _) -> Just codec
+      ListRep (CodecRep _ codec _) -> Just codec
+    bodyCodec :: BodiednessRep CodecRep -> Maybe TH.Type
+    bodyCodec = \case
+      BodyRep (CodecRep _ codec _) -> Just codec
+      BodylessRep -> Nothing
+    routeRepToMetaPattern :: RouteRep CodecRep -> Match
+    routeRepToMetaPattern (RouteRep name method caps qrys req res) =
+      Match (ConP (mkName name) []) (NormalB expr) []
+      where
+        expr =
+          ConE (mkName "Meta") `AppE`
+          ParensE capsE `AppE`
+          ParensE qrysE `AppE`
+          ParensE reqE `AppE`
+          ParensE respE `AppE`
+          ParensE methodE
+        capsE = foldr (\cp -> UInfixE (captureRepToExp cp) (VarE (mkName "./"))) (VarE (mkName "end")) caps
+        captureRepToExp = \case
+          MatchRep str -> VarE (mkName "match") `AppE` LitE (StringL str)
+          CaptureRep (CodecRep n _ _) -> VarE (mkName "capture") `AppE` VarE n
+        qrysE = foldr (\qp -> UInfixE (queryRepToExp qp) (VarE (mkName ".&"))) (VarE (mkName "qend")) qrys
+        queryRepToExp (QueryRep idt param) = case param of
+          FlagRep -> VarE (mkName "flag") `AppE` lit
+          OptionalRep (CodecRep n _ _) -> VarE (mkName "optional") `AppE` lit `AppE` VarE n
+          ListRep (CodecRep n _ _) -> VarE (mkName "list") `AppE` lit `AppE` VarE n
+          where lit = LitE (StringL idt)
+        reqE = case req of
+          BodylessRep -> VarE (mkName "bodyless")
+          BodyRep (CodecRep n _ _) -> VarE (mkName "body") `AppE` VarE n
+        respE = case res of
+          CodecRep n _ _ -> VarE (mkName "resp") `AppE` VarE n
+        methodE = LitE (StringL method)
 
-trasa :: [RouteRep] -> Q [Dec]
-trasa routeReps = do
+trasa :: [RouteRep Name] -> Q [Dec]
+trasa routeRepNames = do
+  routeReps <- traverse (traverse genCodec) routeRepNames
   route <- routeType routeReps
-  cons <- constructeds routeReps
-  meta <- metaType routeReps
-  return ([route] ++ cons ++ [meta])
+  cons <- enumRoutesInstance routeReps
+  meta <- metaInstance routeReps
+  return ([route,cons,meta])
 
 int :: CaptureEncoding Int
 int = captureCodecToCaptureEncoding showReadCaptureCodec
@@ -140,14 +181,9 @@ bodyUnit :: BodyCodec ()
 bodyUnit = showReadBodyCodec
 
 test :: Q [Dec]
-test = do
-  intC <- genCodec 'int
-  bodyIntC <- genCodec 'bodyInt
-  bodyStringC <- genCodec 'bodyString
-  bodyUnitC <- genCodec 'bodyUnit
-  let get = RouteRep "Add" "GET" [intC,intC] [ParamRepOptional intC] BodylessRep bodyIntC
-      post = RouteRep "Blog" "POST" [] [ParamRepOptional intC] (BodyRep bodyStringC) bodyUnitC
-  trasa [get,post]
-
-example :: IO ()
-example = runQ test >>= print . ppr
+test = trasa [get,post]
+  where
+    get = RouteRep "Add" "GET"
+              [CaptureRep 'int, CaptureRep 'int]
+              [QueryRep "int" (OptionalRep 'int)] BodylessRep 'bodyInt
+    post = RouteRep "Blog" "POST" [] [QueryRep "id" (OptionalRep 'int)] (BodyRep 'bodyString) 'bodyUnit
