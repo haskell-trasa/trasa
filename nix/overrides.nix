@@ -9,6 +9,7 @@ in {
   trasa-server = build ../trasa-server;
   trasa-client = build ../trasa-client;
   trasa-reflex = build ../trasa-reflex;
+  trasa-th = build ../trasa-th;
   # Example
   common = build ../example/common;
   frontend = build ../example/frontend;

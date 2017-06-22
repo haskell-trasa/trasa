@@ -22,8 +22,9 @@ import Network.Wai.Middleware.RequestLogger (logStdoutDev)
 
 import Common
 
-routes :: forall cs qs rq rp.
-     TVar (M.Map Key Person)
+routes
+  :: forall cs qs rq rp
+  .  TVar (M.Map Key Person)
   -> Route cs qs rq rp
   -> Rec Identity cs
   -> Rec Parameter qs
