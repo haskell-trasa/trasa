@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE ExistentialQuantification #-}
@@ -10,11 +11,18 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wall -Werror #-}
 module Trasa.Reflex
-  ( requestWith
+  (
+    MetaReflex
+  , metaCodecToMetaReflex
+  , metaReflexToMetaClient
+  , request
+  , requestWith
+  , requestMany
   , requestManyWith
   , ResponseHandler(..)
   , requestMultiWith
   , serve
+  , serveWith
   , Arguments
   , handler) where
 
@@ -62,64 +70,88 @@ data Pair a b = Pair !a !b
 newtype Preps route resp f a = Preps (f (Pair (ResponseHandler route resp) a))
   deriving (Functor,Foldable,Traversable)
 
+type MetaReflex = Meta CaptureEncoding CaptureCodec (Many BodyCodec) (Many BodyDecoding)
+
+metaCodecToMetaReflex :: MetaCodec caps qrys req resp -> MetaReflex caps qrys req resp
+metaCodecToMetaReflex = mapMeta captureEncoding id id (mapMany bodyDecoding)
+
+metaReflexToMetaClient :: MetaReflex caps qrys req resp -> MetaClient caps qrys req resp
+metaReflexToMetaClient = mapMeta id captureEncoding (mapMany bodyEncoding) id
+
+request
+  :: ( MonadWidget t m
+     , HasMeta route
+     , HasCaptureEncoding (CaptureStrategy route)
+     , HasCaptureEncoding (QueryStrategy route)
+     , RequestBodyStrategy route ~ Many requestBodyStrat
+     , HasBodyEncoding requestBodyStrat
+     , ResponseBodyStrategy route ~ Many responseBodyStrat
+     , HasBodyDecoding responseBodyStrat
+     )
+  => Event t (Prepared route response)
+  -> m (Event t (Either TrasaErr response))
+request = requestWith (transMeta . hasMeta)
+  where transMeta = mapMeta captureEncoding captureEncoding (mapMany bodyEncoding) (mapMany bodyDecoding)
+
+
 -- | Single request version of 'requestManyWith'
-requestWith :: forall t m route response.
-  MonadWidget t m
-  => (forall caps qrys req resp. route caps qrys req resp -> Method)
-  -- ^
-  -> (forall caps qrys req resp. route caps qrys req resp -> Path CaptureEncoding caps)
-  -> (forall caps qrys req resp. route caps qrys req resp -> Rec (Query CaptureEncoding) qrys)
-  -> (forall caps qrys req resp. route caps qrys req resp -> RequestBody (Many BodyEncoding) req)
-  -> (forall caps qrys req resp. route caps qrys req resp -> ResponseBody (Many BodyDecoding) resp)
+requestWith
+  :: forall t m route response
+  .  MonadWidget t m
+  => (forall caps qrys req resp. route caps qrys req resp -> MetaClient caps qrys req resp)
   -> Event t (Prepared route response)
   -> m (Event t (Either TrasaErr response))
-requestWith toMethod toCapEncs toQuerys toReqBody toRespBody prepared =
-  coerceEvent <$> requestManyWith toMethod toCapEncs toQuerys toReqBody toRespBody preparedId
+requestWith toMeta prepared =
+  coerceEvent <$> requestManyWith toMeta preparedId
   where preparedId = coerceEvent prepared :: Event t (Identity (Prepared route response))
 
+requestMany
+  :: ( MonadWidget t m
+     , Traversable f
+     , HasMeta route
+     , HasCaptureEncoding (CaptureStrategy route)
+     , HasCaptureEncoding (QueryStrategy route)
+     , RequestBodyStrategy route ~ Many requestBodyStrat
+     , HasBodyEncoding requestBodyStrat
+     , ResponseBodyStrategy route ~ Many responseBodyStrat
+     , HasBodyDecoding responseBodyStrat
+     )
+  => Event t (f (Prepared route response))
+  -> m (Event t (f (Either TrasaErr response)))
+requestMany = requestManyWith (transMeta . hasMeta)
+  where transMeta = mapMeta captureEncoding captureEncoding (mapMany bodyEncoding) (mapMany bodyDecoding)
+
 -- | Perform n requests and collect the results
-requestManyWith :: forall t m f route response.
-  (MonadWidget t m, Traversable f)
-  => (forall caps qrys req resp. route caps qrys req resp -> Method)
-  -- ^ Get the method from a route
-  -> (forall caps qrys req resp. route caps qrys req resp -> Path CaptureEncoding caps)
-  -- ^ How to encode the path pieces from a route
-  -> (forall caps qrys req resp. route caps qrys req resp -> Rec (Query CaptureEncoding) qrys)
-  -- ^ How to encode the query parameters from a route
-  -> (forall caps qrys req resp. route caps qrys req resp -> RequestBody (Many BodyEncoding) req)
-  -- ^ How to encode the request body from a route
-  -> (forall caps qrys req resp. route caps qrys req resp -> ResponseBody (Many BodyDecoding) resp)
-  -- ^ How to decode a response from a route
+requestManyWith
+  :: forall t m f route response
+  .  (MonadWidget t m, Traversable f)
+  => (forall caps qrys req resp. route caps qrys req resp -> MetaClient caps qrys req resp)
   -> Event t (f (Prepared route response))
   -- ^ The routes to request
   -> m (Event t (f (Either TrasaErr response)))
-requestManyWith toMethod toCapEncs toQuerys toReqBody toRespBody prepared =
-  requestMultiWith toMethod toCapEncs toQuerys toReqBody toRespBody (fmap toResponseHandler <$> prepared)
-  where toResponseHandler p@(Prepared route _ _ _) = ResponseHandler p (toRespBody route) id
+requestManyWith toMeta prepared =
+  requestMultiWith toMeta (fmap toResponseHandler <$> prepared)
+  where toResponseHandler p@(Prepared route _ _ _) = ResponseHandler p (metaResponseBody (toMeta route)) id
 
 -- | Internal function but exported because it subsumes the function of all the other functions in this package.
 -- | Very powerful function
 requestMultiWith :: forall t m f route a.
   (MonadWidget t m, Traversable f)
-  => (forall caps qrys req resp. route caps qrys req resp -> Method)
-  -> (forall caps qrys req resp. route caps qrys req resp -> Path CaptureEncoding caps)
-  -> (forall caps qrys req resp. route caps qrys req resp -> Rec (Query CaptureEncoding) qrys)
-  -> (forall caps qrys req resp. route caps qrys req resp -> RequestBody (Many BodyEncoding) req)
-  -> (forall caps qrys req resp. route caps qrys req resp -> ResponseBody (Many BodyDecoding) resp)
+  => (forall caps qrys req resp. route caps qrys req resp -> MetaClient caps qrys req resp)
   -> Event t (f (ResponseHandler route a))
   -> m (Event t (f (Either TrasaErr a)))
-requestMultiWith toMethod toCapEncs toQuerys toReqBody toRespBody contResp =
+requestMultiWith toMeta contResp =
   fmap parseXhrResponses <$> performRequestsAsync (buildXhrRequests <$> contResp)
   where parseXhrResponses :: Preps route a f XhrResponse -> f (Either TrasaErr a)
         parseXhrResponses (Preps res) = fmap parseOneXhrResponse res
         parseOneXhrResponse :: Pair (ResponseHandler route a) XhrResponse -> Either TrasaErr a
-        parseOneXhrResponse (Pair (ResponseHandler (Prepared route _ _ _) _ fromResp)
+        parseOneXhrResponse (Pair (ResponseHandler _ responseBody fromResp)
                             (XhrResponse statusCode _ _ response headers)) =
           case statusCode < 400 of
             True -> case M.lookup "Content-Type" headers >>= N.parseAccept . TE.encodeUtf8 of
               Just content -> case response of
                 Just txt -> let bs = LBS.fromStrict (TE.encodeUtf8 txt) in
-                  fromResp <$> decodeResponseBody (toRespBody route) (Content content bs)
+                  fromResp <$> decodeResponseBody responseBody (Content content bs)
                 Nothing -> Left (TrasaErr N.status400 "No body returned from server")
               Nothing -> Left (TrasaErr N.status406 "No content type from server")
             False -> Left (TrasaErr (N.mkStatus (fromIntegral statusCode) (maybe "" TE.encodeUtf8 response)) "")
@@ -127,8 +159,9 @@ requestMultiWith toMethod toCapEncs toQuerys toReqBody toRespBody contResp =
         buildXhrRequests = Preps . fmap buildOneXhrRequest
         buildOneXhrRequest :: ResponseHandler route a -> Pair (ResponseHandler route a) (XhrRequest BS.ByteString)
         buildOneXhrRequest w@(ResponseHandler p@(Prepared route _ _ _) _ _) =
-          Pair w (XhrRequest (encodeMethod (toMethod route)) (encodeUrl (linkWith toCapEncs toQuerys p)) conf)
+          Pair w (XhrRequest method (encodeUrl (linkWith toMeta p)) conf)
           where
+            method = (encodeMethod . metaMethod . toMeta) route
             conf :: XhrRequestConfig BS.ByteString
             conf = def & xhrRequestConfig_sendData .~ maybe "" (LBS.toStrict . contentData) content
                         & xhrRequestConfig_headers .~ headers
@@ -138,16 +171,36 @@ requestMultiWith toMethod toCapEncs toQuerys toReqBody toRespBody contResp =
               Nothing -> acceptHeader
               Just (Content typ _) -> M.insert "Content-Type" (TE.decodeUtf8 (N.renderHeader typ)) acceptHeader
             acceptHeader = "Accept" =: (TE.decodeUtf8 . BS.intercalate ", " . fmap N.renderHeader . toList) accepts
-            Payload _ content accepts = payloadWith toCapEncs toQuerys toReqBody toRespBody p
+            Payload _ content accepts = payloadWith toMeta p
+
+serve
+  :: ( MonadWidget t m
+     , HasMeta route
+     , HasCaptureEncoding (CaptureStrategy route)
+     , HasCaptureDecoding (CaptureStrategy route)
+     , HasCaptureCodec (QueryStrategy route)
+     , RequestBodyStrategy route ~ Many requestBodyStrat
+     , HasBodyCodec requestBodyStrat
+     , ResponseBodyStrategy route ~ Many responseBodyStrat
+     , HasBodyDecoding responseBodyStrat
+     , EnumerableRoute route
+     )
+  => (forall caps qrys req resp.
+      route caps qrys req resp ->
+      Rec Identity caps ->
+      Rec Parameter qrys ->
+      ResponseBody Identity resp ->
+      m (Event t (Concealed route)))
+  -> (TrasaErr -> m (Event t (Concealed route)))
+  -> m ()
+serve = serveWith (transMeta . hasMeta) router
+  where transMeta = mapMeta captureEncoding captureCodec (mapMany bodyCodec) (mapMany bodyDecoding)
 
 -- | Used to serve single page apps
-serve :: forall t m route.
-  MonadWidget t m
-  => (forall caps qrys req resp. route caps qrys req resp -> Method)
-  -> (forall caps qrys req resp. route caps qrys req resp -> Path CaptureEncoding caps)
-  -> (forall caps qrys req resp. route caps qrys req resp -> Rec (Query CaptureCodec) qrys)
-  -> (forall caps qrys req resp. route caps qrys req resp -> RequestBody (Many BodyCodec) req)
-  -> (forall caps qrys req resp. route caps qrys req resp -> ResponseBody (Many BodyCodec) resp)
+serveWith
+  :: forall t m route
+  .  MonadWidget t m
+  => (forall caps qrys req resp. route caps qrys req resp -> MetaReflex caps qrys req resp)
   -> Router route
   -> (forall caps qrys req resp.
       route caps qrys req resp ->
@@ -158,30 +211,21 @@ serve :: forall t m route.
   -- ^ Build a widget from captures, query parameters, and a response body
   -> (TrasaErr -> m (Event t (Concealed route)))
   -> m ()
-serve toMethod toCapEnc toQuerys toReqBody toRespBody router widgetize onErr = mdo
+serveWith toMeta madeRouter widgetize onErr = mdo
   -- Investigate why this is needed
   let newUrls = ffor (switch (current jumpsD)) $ \(Concealed route caps querys reqBody) ->
-        linkWith toCapEnc toQueryEnc (Prepared route caps querys reqBody)
+        linkWith (mapMetaQuery captureEncoding . toMeta) (Prepared route caps querys reqBody)
   (u0, urls) <- url newUrls
   pb <- getPostBuild
-  let choice = ffor (leftmost [newUrls, urls, u0 <$ pb]) $ \us ->
-        parseWith toQueryDec toReqBodyDec router "GET" us Nothing
+  let transMetaParse = mapMetaQuery captureDecoding . mapMetaRequestBody (mapMany bodyDecoding)
+      choice = ffor (leftmost [newUrls, urls, u0 <$ pb]) $ \us ->
+        parseWith (transMetaParse . toMeta) madeRouter "GET" us Nothing
       (failures, concealeds) = fanEither choice
-  actions <- requestMultiWith toMethod toCapEnc toQueryEnc toReqBodyEnc toRespBodyDec (fromConcealed <$> concealeds)
+  actions <- requestMultiWith (metaReflexToMetaClient . toMeta) (fromConcealed <$> concealeds)
   jumpsD <- widgetHold (return never) (leftmost [onErr <$> failures, either onErr id . runIdentity <$> actions])
   return ()
   where
-    toQueryEnc :: route caps qrys req resp -> Rec (Query CaptureEncoding) qrys
-    toQueryEnc = mapQuery captureCodecToCaptureEncoding . toQuerys
-    toQueryDec :: route caps qrys req resp -> Rec (Query CaptureDecoding) qrys
-    toQueryDec = mapQuery captureCodecToCaptureDecoding . toQuerys
-    toReqBodyDec :: route caps qrys req resp -> RequestBody (Many BodyDecoding) req
-    toReqBodyDec = mapRequestBody (mapMany bodyCodecToBodyDecoding) . toReqBody
-    toReqBodyEnc :: route caps qrys req resp -> RequestBody (Many BodyEncoding) req
-    toReqBodyEnc = mapRequestBody (mapMany bodyCodecToBodyEncoding) . toReqBody
-    toRespBodyDec :: route caps qrys req resp -> ResponseBody (Many BodyDecoding) resp
-    toRespBodyDec = mapResponseBody (mapMany bodyCodecToBodyDecoding) . toRespBody
     fromConcealed :: Concealed route -> Identity (ResponseHandler route (m (Event t (Concealed route))))
     fromConcealed (Concealed route caps querys reqBody) =
-      Identity (ResponseHandler (Prepared route caps querys reqBody) (toRespBodyDec route)
+      Identity (ResponseHandler (Prepared route caps querys reqBody) (metaResponseBody (toMeta route))
                (widgetize route caps querys . ResponseBody . Identity))
