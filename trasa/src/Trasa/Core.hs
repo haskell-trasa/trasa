@@ -24,6 +24,7 @@ module Trasa.Core
   , Concealed(..)
   , Constructed(..)
   , conceal
+  , concealedToPrepared
   , mapConstructed
   -- ** Classes
   , HasMeta(..)
@@ -182,7 +183,7 @@ mapMany eta (Many m) = Many (fmap eta m)
 data Bodiedness = forall a. Body a | Bodyless
 
 data RequestBody :: (Type -> Type) -> Bodiedness -> Type where
-  RequestBodyPresent :: f a -> RequestBody f ('Body a)
+  RequestBodyPresent :: !(f a) -> RequestBody f ('Body a)
   RequestBodyAbsent :: RequestBody f 'Bodyless
 
 body :: rqf req -> RequestBody rqf ('Body req)
@@ -205,8 +206,8 @@ mapResponseBody f (ResponseBody resBod) = ResponseBody (f resBod)
 
 data Path :: (Type -> Type) -> [Type] -> Type where
   PathNil :: Path cap '[]
-  PathConsCapture :: cap a -> Path cap as -> Path cap (a ': as)
-  PathConsMatch :: T.Text -> Path cap as -> Path cap as
+  PathConsCapture :: !(cap a) -> !(Path cap as) -> Path cap (a ': as)
+  PathConsMatch :: !T.Text -> !(Path cap as) -> Path cap as
 
 infixr 7 ./
 
@@ -238,14 +239,14 @@ data Param
   | forall a. List a
 
 data Parameter :: Param -> Type where
-  ParameterFlag :: Bool -> Parameter Flag
-  ParameterOptional :: Maybe a -> Parameter (Optional a)
-  ParameterList :: [a] -> Parameter (List a)
+  ParameterFlag :: !Bool -> Parameter Flag
+  ParameterOptional :: !(Maybe a) -> Parameter (Optional a)
+  ParameterList :: ![a] -> Parameter (List a)
 
 data Query :: (Type -> Type) -> Param -> Type where
-  QueryFlag :: T.Text -> Query cap Flag
-  QueryOptional :: T.Text -> cap a -> Query cap (Optional a)
-  QueryList :: T.Text -> cap a -> Query cap (List a)
+  QueryFlag :: !T.Text -> Query cap Flag
+  QueryOptional :: !T.Text -> !(cap a) -> Query cap (Optional a)
+  QueryList :: !T.Text -> !(cap a) -> Query cap (List a)
 
 flag :: T.Text -> Query cpf Flag
 flag = QueryFlag
@@ -282,25 +283,25 @@ mapMetaPath
   :: (forall x. cf x -> cg x)
   -> Meta cf qryCodec reqCodec respCodec caps qrys req resp
   -> Meta cg qryCodec reqCodec respCodec caps qrys req resp
-mapMetaPath eta meta = meta { metaPath = mapPath eta (metaPath meta) }
+mapMetaPath eta m = m { metaPath = mapPath eta (metaPath m) }
 
 mapMetaQuery
   :: (forall x. qf x -> qg x)
   -> Meta capCodec qf reqCodec respCodec caps qrys req resp
   -> Meta capCodec qg reqCodec respCodec caps qrys req resp
-mapMetaQuery eta meta = meta { metaQuery = mapQuery eta (metaQuery meta) }
+mapMetaQuery eta m = m { metaQuery = mapQuery eta (metaQuery m) }
 
 mapMetaRequestBody
   :: (forall x. rf x -> rg x)
   -> Meta capCodec qryCodec rf respCodec caps qrys req resp
   -> Meta capCodec qryCodec rg respCodec caps qrys req resp
-mapMetaRequestBody eta meta = meta { metaRequestBody = mapRequestBody eta (metaRequestBody meta) }
+mapMetaRequestBody eta m = m { metaRequestBody = mapRequestBody eta (metaRequestBody m) }
 
 mapMetaResponseBody
   :: (forall x. rf x -> rg x)
   -> Meta capCodec qryCodec reqCodec rf caps qrys req resp
   -> Meta capCodec qryCodec reqCodec rg caps qrys req resp
-mapMetaResponseBody eta meta = meta { metaResponseBody = mapResponseBody eta (metaResponseBody meta)}
+mapMetaResponseBody eta m = m { metaResponseBody = mapResponseBody eta (metaResponseBody m)}
 
 mapMeta
   :: (forall x. capCodec1 x -> capCodec2 x)
@@ -333,29 +334,19 @@ class HasMeta route where
   type QueryStrategy route :: Type -> Type
   type RequestBodyStrategy route :: Type -> Type
   type ResponseBodyStrategy route :: Type -> Type
-  hasMeta
+  meta
     :: route caps qrys req resp
     -> Meta (CaptureStrategy route) (QueryStrategy route) (RequestBodyStrategy route) (ResponseBodyStrategy route) caps qrys req resp
 
 type MetaClient = Meta CaptureEncoding CaptureEncoding (Many BodyEncoding) (Many BodyDecoding)
 
 metaCodecToMetaClient :: MetaCodec caps qrys req resp -> MetaClient caps qrys req resp
-metaCodecToMetaClient (Meta path query reqBody respBody method) = Meta
-  (mapPath captureCodecToCaptureEncoding path)
-  (mapQuery captureCodecToCaptureEncoding query)
-  (mapRequestBody (mapMany bodyCodecToBodyEncoding) reqBody)
-  (mapResponseBody (mapMany bodyCodecToBodyDecoding) respBody)
-  method
+metaCodecToMetaClient = mapMeta captureEncoding captureEncoding (mapMany bodyEncoding) (mapMany bodyDecoding)
 
 type MetaServer = Meta CaptureDecoding CaptureDecoding (Many BodyDecoding) (Many BodyEncoding)
 
 metaCodecToMetaServer :: MetaCodec caps qrys req resp -> MetaServer caps qrys req resp
-metaCodecToMetaServer (Meta path query reqBody respBody method) = Meta
-  (mapPath captureCodecToCaptureDecoding path)
-  (mapQuery captureCodecToCaptureDecoding query)
-  (mapRequestBody (mapMany bodyCodecToBodyDecoding) reqBody)
-  (mapResponseBody (mapMany bodyCodecToBodyEncoding) respBody)
-  method
+metaCodecToMetaServer = mapMeta captureDecoding captureDecoding (mapMany bodyDecoding) (mapMany bodyEncoding)
 
 -- | Generate a @Url@ for use in hyperlinks.
 linkWith
@@ -365,8 +356,8 @@ linkWith
   -- ^ The route to encode
   -> Url
 linkWith toMeta (Prepared route captures querys _) =
-  encodePieces (metaPath meta) (metaQuery meta) captures querys
-  where meta = toMeta route
+  encodePieces (metaPath m) (metaQuery m) captures querys
+  where m = toMeta route
 
 link
   :: (HasMeta route, HasCaptureEncoding (CaptureStrategy route), HasCaptureEncoding (QueryStrategy route))
@@ -374,11 +365,11 @@ link
   -> Url
 link = linkWith toMeta
   where
-    toMeta route = meta
-      { metaPath = mapPath captureEncoding (metaPath meta)
-      , metaQuery = mapQuery captureEncoding (metaQuery meta)
+    toMeta route = m
+      { metaPath = mapPath captureEncoding (metaPath m)
+      , metaQuery = mapQuery captureEncoding (metaQuery m)
       }
-      where meta = hasMeta route
+      where m = meta route
 
 data Payload = Payload
   { payloadUrl :: !Url
@@ -397,9 +388,9 @@ payloadWith toMeta p@(Prepared route _ _ reqBody) =
   Payload url content accepts
   where
     url = linkWith toMeta p
-    meta = toMeta route
-    content = encodeRequestBody (metaRequestBody meta) reqBody
-    ResponseBody (Many decodings) = metaResponseBody meta
+    m = toMeta route
+    content = encodeRequestBody (metaRequestBody m) reqBody
+    ResponseBody (Many decodings) = metaResponseBody m
     accepts = bodyDecodingNames =<< decodings
 
 -- Only useful to implement packages like 'trasa-client'
@@ -411,11 +402,11 @@ requestWith
   -> Prepared route response
   -> m (Either TrasaErr response)
 requestWith toMeta run (Prepared route captures querys reqBody) =
-  let meta = toMeta route
-      method = metaMethod meta
-      url = encodePieces (metaPath meta) (metaQuery meta) captures querys
-      content = encodeRequestBody (metaRequestBody meta) reqBody
-      respBodyDecs@(ResponseBody (Many decodings)) = metaResponseBody meta
+  let m = toMeta route
+      method = metaMethod m
+      url = encodePieces (metaPath m) (metaQuery m) captures querys
+      content = encodeRequestBody (metaRequestBody m) reqBody
+      respBodyDecs@(ResponseBody (Many decodings)) = metaResponseBody m
       accepts = bodyDecodingNames =<< decodings
    in fmap (\c -> c >>= decodeResponseBody respBodyDecs) (run method url content accepts)
 
@@ -531,7 +522,7 @@ class EnumerableRoute route where
 router
   :: (HasMeta route, HasCaptureDecoding (CaptureStrategy route), EnumerableRoute route)
   => Router route
-router = routerWith (mapMetaPath captureDecoding . hasMeta) enumerateRoutes
+router = routerWith (mapMetaPath captureDecoding . meta) enumerateRoutes
 
 -- | Build a router from all the possible routes, and methods to turn routes into needed metadata
 routerWith
@@ -542,8 +533,8 @@ routerWith
 routerWith toMeta = Router . foldMap buildRouter
   where
     buildRouter :: Constructed route -> IxedRouter route Z
-    buildRouter (Constructed route) = singletonIxedRouter route (metaMethod meta) (metaPath meta)
-      where meta = toMeta route
+    buildRouter (Constructed route) = singletonIxedRouter route (metaMethod m) (metaPath m)
+      where m = toMeta route
 
 parse
   :: ( HasMeta route
@@ -556,7 +547,7 @@ parse
   -> Url -- ^ Everything after the authority
   -> Maybe Content -- ^ Request content type and body
   -> Either TrasaErr (Concealed route)
-parse = parseWith (mapMetaQuery captureDecoding . mapMetaRequestBody (mapMany bodyDecoding) . hasMeta) router
+parse = parseWith (mapMetaQuery captureDecoding . mapMetaRequestBody (mapMany bodyDecoding) . meta) router
 
 -- | Parses the path, the querystring, and the request body.
 parseWith
@@ -570,9 +561,9 @@ parseWith
 parseWith toMeta madeRouter method (Url encodedPath encodedQuery) mcontent = do
   Pathed route captures <- maybe (Left (status N.status404)) Right
     $ parsePathWith madeRouter method encodedPath
-  let meta = toMeta route
-  querys <- parseQueryWith (metaQuery meta) encodedQuery
-  reqBody <- decodeRequestBody (metaRequestBody meta) mcontent
+  let m = toMeta route
+  querys <- parseQueryWith (metaQuery m) encodedQuery
+  reqBody <- decodeRequestBody (metaRequestBody m) mcontent
   return (Concealed route captures querys reqBody)
 
 -- | Parses only the path.
@@ -669,7 +660,7 @@ prepare
   :: HasMeta route
   => route captures queries request response
   -> Arguments captures queries request (Prepared route response)
-prepare = prepareWith hasMeta
+prepare = prepareWith meta
 
 -- | Used my users to define a function called prepare, see tutorial
 prepareWith
@@ -678,8 +669,8 @@ prepareWith
   -- ^ The route to prepare
   -> Arguments captures query request (Prepared route response)
 prepareWith toMeta route =
-  prepareExplicit route (metaPath meta) (metaQuery meta) (metaRequestBody meta)
-  where meta = toMeta route
+  prepareExplicit route (metaPath m) (metaQuery m) (metaRequestBody m)
+  where m = toMeta route
 
 prepareExplicit :: forall route captures queries request response rqf pf qf.
      route captures queries request response
@@ -735,7 +726,7 @@ handler = go
 --   and the response body. This is needed so that users can
 --   enumerate over all the routes.
 data Constructed :: ([Type] -> [Param] -> Bodiedness -> Type -> Type) -> Type where
-  Constructed :: route captures querys request response -> Constructed route
+  Constructed :: !(route captures querys request response) -> Constructed route
 -- I dont really like the name Constructed, but I don't want to call it
 -- Some or Any since these get used a lot and a conflict would be likely.
 -- Think, think, think.
@@ -746,20 +737,16 @@ mapConstructed ::
   -> Constructed route
 mapConstructed f (Constructed sub) = Constructed (f sub)
 
--- | Only includes the path. Once querystring params get added
---   to this library, this data type should not have them. This
---   type is only used internally and should not be exported.
 data Pathed :: ([Type] -> [Param] -> Bodiedness -> Type -> Type) -> Type  where
-  Pathed :: route captures querys request response -> Rec Identity captures -> Pathed route
+  Pathed :: !(route captures querys request response) -> !(Rec Identity captures) -> Pathed route
 
--- | Includes the path and the request body (and the querystring
---   params after they get added to this library).
+-- | Includes the route, path, query parameters, and request body.
 data Prepared :: ([Type] -> [Param] -> Bodiedness -> Type -> Type) -> Type -> Type where
   Prepared ::
-       route captures querys request response
-    -> Rec Identity captures
-    -> Rec Parameter querys
-    -> RequestBody Identity request
+       !(route captures querys request response)
+    -> !(Rec Identity captures)
+    -> !(Rec Parameter querys)
+    -> !(RequestBody Identity request)
     -> Prepared route response
 
 -- | Only needed to implement 'parseWith'. Most users do not need this.
@@ -767,20 +754,27 @@ data Prepared :: ([Type] -> [Param] -> Bodiedness -> Type -> Type) -> Type -> Ty
 --   then you will need this.
 data Concealed :: ([Type] -> [Param] -> Bodiedness -> Type -> Type) -> Type where
   Concealed ::
-       route captures querys request response
-    -> Rec Identity captures
-    -> Rec Parameter querys
-    -> RequestBody Identity request
+       !(route captures querys request response)
+    -> !(Rec Identity captures)
+    -> !(Rec Parameter querys)
+    -> !(RequestBody Identity request)
     -> Concealed route
 
 -- | Conceal the response type.
 conceal :: Prepared route response -> Concealed route
 conceal (Prepared route caps querys req) = Concealed route caps querys req
 
+concealedToPrepared
+  :: forall route a
+  .  Concealed route
+  -> (forall resp. Prepared route resp -> a)
+  -> a
+concealedToPrepared (Concealed route caps qrys req) f = f (Prepared route caps qrys req)
+
 -- | The HTTP content type and body.
 data Content = Content
-  { contentType :: N.MediaType
-  , contentData :: LBS.ByteString
+  { contentType :: !N.MediaType
+  , contentData :: !LBS.ByteString
   } deriving (Show,Eq,Ord)
 
 -- | Only promoted version used.
@@ -790,9 +784,9 @@ newtype Router route = Router (IxedRouter route 'Z)
 
 data IxedRouter :: ([Type] -> [Param] -> Bodiedness -> Type -> Type) -> Nat -> Type where
   IxedRouter ::
-       HashMap T.Text (IxedRouter route n)
-    -> Maybe (IxedRouter route ('S n))
-    -> HashMap T.Text [IxedResponder route n] -- Should be either zero or one, more than one means that there are trivially overlapped routes
+       !(HashMap T.Text (IxedRouter route n))
+    -> !(Maybe (IxedRouter route ('S n)))
+    -> !(HashMap T.Text [IxedResponder route n]) -- Should be either zero or one, more than one means that there are trivially overlapped routes
     -> IxedRouter route n
 
 -- | This monoid instance is provided so that we can
@@ -808,31 +802,31 @@ instance Monoid (IxedRouter route n) where
 
 data IxedResponder :: ([Type] -> [Param] -> Bodiedness -> Type -> Type) -> Nat -> Type where
   IxedResponder ::
-       route captures query request response
-    -> IxedRec CaptureDecoding n captures
+       !(route captures query request response)
+    -> !(IxedRec CaptureDecoding n captures)
     -> IxedResponder route n
 
 data IxedRec :: (k -> Type) -> Nat -> [k] -> Type where
   IxedRecNil :: IxedRec f 'Z '[]
-  IxedRecCons :: !(f r) -> IxedRec f n rs -> IxedRec f ('S n) (r ': rs)
+  IxedRecCons :: !(f r) -> !(IxedRec f n rs) -> IxedRec f ('S n) (r ': rs)
 
 data Vec :: Nat -> Type -> Type where
   VecNil :: Vec 'Z a
-  VecCons :: !a -> Vec n a -> Vec ('S n) a
+  VecCons :: !a -> !(Vec n a) -> Vec ('S n) a
 
 data IxedPath :: (Type -> Type) -> Nat -> [Type] -> Type where
   IxedPathNil :: IxedPath f 'Z '[]
-  IxedPathCapture :: f a -> IxedPath f n as -> IxedPath f ('S n) (a ': as)
-  IxedPathMatch :: T.Text -> IxedPath f n a -> IxedPath f n a
+  IxedPathCapture :: !(f a) -> !(IxedPath f n as) -> IxedPath f ('S n) (a ': as)
+  IxedPathMatch :: !T.Text -> !(IxedPath f n a) -> IxedPath f n a
 
 data LenPath :: Nat -> Type where
   LenPathNil :: LenPath 'Z
-  LenPathCapture :: LenPath n -> LenPath ('S n)
-  LenPathMatch :: T.Text -> LenPath n -> LenPath n
+  LenPathCapture :: !(LenPath n) -> LenPath ('S n)
+  LenPathMatch :: !T.Text -> !(LenPath n) -> LenPath n
 
 -- Assumes length is in penultimate position.
 data HideIx :: (Nat -> k -> Type) -> k -> Type where
-  HideIx :: f n a -> HideIx f a
+  HideIx :: !(f n a) -> HideIx f a
 
 -- toIxedRec :: Rec f xs -> HideIx (IxedRec f) xs
 -- toIxedRec RNil = HideIx IxedRecNil

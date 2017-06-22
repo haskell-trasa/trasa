@@ -88,7 +88,7 @@ client
   => Config
   -> Prepared route response
   -> IO (Either TrasaErr response)
-client = clientWith (transformMeta . hasMeta)
+client = clientWith (transformMeta . meta)
   where transformMeta = mapMeta captureEncoding captureEncoding (mapMany bodyEncoding) (mapMany bodyDecoding)
 
 clientWith

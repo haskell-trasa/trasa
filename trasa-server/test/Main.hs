@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE GADTs #-}
@@ -70,38 +71,36 @@ instance HasMeta Route where
   type QueryStrategy Route = CaptureCodec
   type RequestBodyStrategy Route = Many BodyCodec
   type ResponseBodyStrategy Route = Many BodyCodec
-  hasMeta = meta
-
-meta :: Route ps qs rq rp -> MetaCodec ps qs rq rp
-meta route = metaBuilderToMetaCodec $ case route of
-  EmptyR -> Meta
-    end
-    qend
-    bodyless (resp bodyInt) M.get
-  HelloR -> Meta
-    (match "hello" ./ end)
-    qend
-    bodyless (resp bodyInt) M.get
-  AdditionR -> Meta
-    (match "add" ./ capture int ./ capture int ./ end)
-    (optional "more" int .& qend)
-    bodyless (resp bodyInt) M.get
-  IdentityR -> Meta
-    (match "identity" ./ capture string ./ end)
-    qend
-    bodyless (resp bodyString) M.get
-  LeftPadR -> Meta
-    (match "pad" ./ match "left" ./ capture int ./ end)
-    qend
-    (body bodyString) (resp bodyString) M.get
-  TrickyOneR -> Meta
-    (match "tricky" ./ capture int ./ match "one" ./ end)
-    qend
-    bodyless (resp bodyString) M.get
-  TrickyTwoR -> Meta
-    (capture int ./ capture int ./ match "two" ./ end)
-    qend
-    bodyless (resp bodyString) M.get
+  meta :: Route ps qs rq rp -> MetaCodec ps qs rq rp
+  meta route = metaBuilderToMetaCodec $ case route of
+    EmptyR -> Meta
+      end
+      qend
+      bodyless (resp bodyInt) M.get
+    HelloR -> Meta
+      (match "hello" ./ end)
+      qend
+      bodyless (resp bodyInt) M.get
+    AdditionR -> Meta
+      (match "add" ./ capture int ./ capture int ./ end)
+      (optional "more" int .& qend)
+      bodyless (resp bodyInt) M.get
+    IdentityR -> Meta
+      (match "identity" ./ capture string ./ end)
+      qend
+      bodyless (resp bodyString) M.get
+    LeftPadR -> Meta
+      (match "pad" ./ match "left" ./ capture int ./ end)
+      qend
+      (body bodyString) (resp bodyString) M.get
+    TrickyOneR -> Meta
+      (match "tricky" ./ capture int ./ match "one" ./ end)
+      qend
+      bodyless (resp bodyString) M.get
+    TrickyTwoR -> Meta
+      (capture int ./ capture int ./ match "two" ./ end)
+      qend
+      bodyless (resp bodyString) M.get
 
 
 int :: CaptureCodec Int

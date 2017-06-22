@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveAnyClass #-}
@@ -60,19 +61,17 @@ data Route :: [Type] -> [Param] -> Bodiedness -> Type -> Type where
   RouteStatus :: Route '[Int] '[] Bodyless ()
   RouteQuery :: Route '[] '[Optional Int] Bodyless Args
 
-meta :: Route caps qrys req resp -> MetaCodec caps qrys req resp
-meta route = metaBuilderToMetaCodec $ case route of
-  RouteHome -> Meta end qend bodyless (resp bodyUnit) M.get
-  RouteIp -> Meta (match "ip" ./ end) qend bodyless (resp bodyAeson) M.get
-  RouteStatus -> Meta (match "status" ./ capture int ./ end) qend bodyless (resp bodyUnit) M.get
-  RouteQuery -> Meta (match "anything" ./ end) (optional "int" int .& qend) bodyless (resp bodyAeson) M.get
-
 instance HasMeta Route where
   type CaptureStrategy Route = CaptureCodec
   type QueryStrategy Route = CaptureCodec
   type RequestBodyStrategy Route = Many BodyCodec
   type ResponseBodyStrategy Route = Many BodyCodec
-  hasMeta = meta
+  meta :: Route caps qrys req resp -> MetaCodec caps qrys req resp
+  meta route = metaBuilderToMetaCodec $ case route of
+    RouteHome -> Meta end qend bodyless (resp bodyUnit) M.get
+    RouteIp -> Meta (match "ip" ./ end) qend bodyless (resp bodyAeson) M.get
+    RouteStatus -> Meta (match "status" ./ capture int ./ end) qend bodyless (resp bodyUnit) M.get
+    RouteQuery -> Meta (match "anything" ./ end) (optional "int" int .& qend) bodyless (resp bodyAeson) M.get
 
 shouldRight :: Show resp => Config -> Prepared Route resp -> IO ()
 shouldRight conf route = do

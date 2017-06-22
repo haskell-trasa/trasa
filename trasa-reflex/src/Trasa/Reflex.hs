@@ -90,7 +90,7 @@ request
      )
   => Event t (Prepared route response)
   -> m (Event t (Either TrasaErr response))
-request = requestWith (transMeta . hasMeta)
+request = requestWith (transMeta . meta)
   where transMeta = mapMeta captureEncoding captureEncoding (mapMany bodyEncoding) (mapMany bodyDecoding)
 
 
@@ -118,7 +118,7 @@ requestMany
      )
   => Event t (f (Prepared route response))
   -> m (Event t (f (Either TrasaErr response)))
-requestMany = requestManyWith (transMeta . hasMeta)
+requestMany = requestManyWith (transMeta . meta)
   where transMeta = mapMeta captureEncoding captureEncoding (mapMany bodyEncoding) (mapMany bodyDecoding)
 
 -- | Perform n requests and collect the results
@@ -193,7 +193,7 @@ serve
       m (Event t (Concealed route)))
   -> (TrasaErr -> m (Event t (Concealed route)))
   -> m ()
-serve = serveWith (transMeta . hasMeta) router
+serve = serveWith (transMeta . meta) router
   where transMeta = mapMeta captureEncoding captureCodec (mapMany bodyCodec) (mapMany bodyDecoding)
 
 -- | Used to serve single page apps

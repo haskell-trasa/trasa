@@ -77,7 +77,7 @@ serve
      -> RequestBody Identity req
      -> TrasaT IO resp)
   -> WAI.Application
-serve makeResponse = serveWith (transformMeta . hasMeta) makeResponse router
+serve makeResponse = serveWith (transformMeta . meta) makeResponse router
   where transformMeta = mapMeta captureDecoding captureDecoding (mapMany bodyDecoding) (mapMany bodyEncoding)
 
 
