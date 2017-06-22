@@ -107,6 +107,7 @@ module Trasa.Core
   , mapMetaQuery
   , mapMetaRequestBody
   , mapMetaResponseBody
+  , mapMeta
   -- * Codecs
   , CaptureEncoding(..)
   , HasCaptureEncoding(..)
@@ -300,6 +301,20 @@ mapMetaResponseBody
   -> Meta capCodec qryCodec reqCodec rf caps qrys req resp
   -> Meta capCodec qryCodec reqCodec rg caps qrys req resp
 mapMetaResponseBody eta meta = meta { metaResponseBody = mapResponseBody eta (metaResponseBody meta)}
+
+mapMeta
+  :: (forall x. capCodec1 x -> capCodec2 x)
+  -> (forall x. qryCodec1 x -> qryCodec2 x)
+  -> (forall x. reqCodec1 x -> reqCodec2 x)
+  -> (forall x. respCodec1 x -> respCodec2 x)
+  -> Meta capCodec1 qryCodec1 reqCodec1 respCodec1 caps qrys req resp
+  -> Meta capCodec2 qryCodec2 reqCodec2 respCodec2 caps qrys req resp
+mapMeta mapCaps mapQrys mapReq mapResp (Meta caps qrys req res method) = Meta
+  (mapPath mapCaps caps)
+  (mapQuery mapQrys qrys)
+  (mapRequestBody mapReq req)
+  (mapResponseBody mapResp res)
+  method
 
 type MetaBuilder = Meta CaptureCodec CaptureCodec BodyCodec BodyCodec
 
