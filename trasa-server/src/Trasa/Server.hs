@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE GADTs #-}
@@ -14,6 +15,7 @@
 module Trasa.Server
   ( TrasaT
   , runTrasaT
+  , serve
   , serveWith
   ) where
 
@@ -59,6 +61,26 @@ runTrasaT
   -> m (Either TrasaErr a, M.Map (CI BS.ByteString) T.Text)
 runTrasaT trasa headers = (flip runReaderT headers . flip runStateT M.empty . runExceptT  . unTrasaT) trasa
 
+serve
+  :: ( HasMeta route
+     , HasCaptureDecoding (CaptureStrategy route)
+     , HasCaptureDecoding (QueryStrategy route)
+     , RequestBodyStrategy route ~ Many requestBodyStrat
+     , HasBodyDecoding requestBodyStrat
+     , ResponseBodyStrategy route ~ Many responseBodyStrat
+     , HasBodyEncoding responseBodyStrat
+     , EnumerableRoute route )
+  => (forall caps qrys req resp
+     .  route caps qrys req resp
+     -> Rec Identity caps
+     -> Rec Parameter qrys
+     -> RequestBody Identity req
+     -> TrasaT IO resp)
+  -> WAI.Application
+serve makeResponse = serveWith (transformMeta . hasMeta) makeResponse router
+  where transformMeta = mapMeta captureDecoding captureDecoding (mapMany bodyDecoding) (mapMany bodyEncoding)
+
+
 serveWith
   :: (forall caps qrys req resp. route caps qrys req resp -> MetaServer caps qrys req resp)
   -> (forall caps qrys req resp.
@@ -70,7 +92,7 @@ serveWith
   -- ^ Actions to perform when requests come in
   -> Router route -- ^ Router
   -> WAI.Application -- ^ WAI Application
-serveWith toMeta makeResponse router =
+serveWith toMeta makeResponse madeRouter =
   \req respond ->
     case decodeMethod <$> TE.decodeUtf8' (WAI.requestMethod req) of
       Left _ -> respond (WAI.responseLBS N.status400 [] "Non utf8 encoded request method")
@@ -82,7 +104,7 @@ serveWith toMeta makeResponse router =
             content <- for (M.lookup hContentType headers >>= N.parseAccept . TE.encodeUtf8) $ \typ ->
               Content typ <$> WAI.strictRequestBody req
             let url = Url (WAI.pathInfo req) (decodeQuery (WAI.queryString req))
-                dispatch = dispatchWith toMeta makeResponse router method accepts url content
+                dispatch = dispatchWith toMeta makeResponse madeRouter method accepts url content
             runTrasaT dispatch headers >>= \case
               (resErr,newHeaders) -> case join resErr of
                 Left (TrasaErr stat errBody) ->

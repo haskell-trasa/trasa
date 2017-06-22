@@ -3,6 +3,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 
@@ -21,7 +22,7 @@ import qualified Network.HTTP.Client as HC
 main :: IO ()
 main = do
   putStrLn "\nStarting trasa server test suite"
-  let app = serveWith (metaCodecToMetaServer . meta) handle router
+  let app = serve handle
   withApplication (return app) $ \port -> do
     manager <- HC.newManager HC.defaultManagerSettings
     attempt manager ("GET http://127.0.0.1:" ++ show port ++ "/") $ \x -> x
@@ -53,28 +54,23 @@ data Route :: [Type] -> [Param] -> Bodiedness -> Type -> Type where
   TrickyOneR :: Route '[Int] '[] Bodyless String
   TrickyTwoR :: Route '[Int,Int] '[] Bodyless String
 
-prepare :: Route cs qs rq rp -> Arguments cs qs rq (Prepared Route rp)
-prepare = prepareWith meta
+instance EnumerableRoute Route where
+  enumerateRoutes =
+    [ Constructed HelloR
+    , Constructed AdditionR
+    , Constructed IdentityR
+    , Constructed LeftPadR
+    , Constructed TrickyOneR
+    , Constructed TrickyTwoR
+    , Constructed EmptyR
+    ]
 
-link :: Prepared Route rp -> Url
-link = linkWith (metaCodecToMetaClient . meta)
-
-parse :: T.Text -> Maybe Content -> Either TrasaErr (Concealed Route)
-parse url = parseWith (metaCodecToMetaServer . meta) router M.get (decodeUrl url)
-
-allRoutes :: [Constructed Route]
-allRoutes =
-  [ Constructed HelloR
-  , Constructed AdditionR
-  , Constructed IdentityR
-  , Constructed LeftPadR
-  , Constructed TrickyOneR
-  , Constructed TrickyTwoR
-  , Constructed EmptyR
-  ]
-
-router :: Router Route
-router = routerWith (metaCodecToMetaServer . meta) allRoutes
+instance HasMeta Route where
+  type CaptureStrategy Route = CaptureCodec
+  type QueryStrategy Route = CaptureCodec
+  type RequestBodyStrategy Route = Many BodyCodec
+  type ResponseBodyStrategy Route = Many BodyCodec
+  hasMeta = meta
 
 meta :: Route ps qs rq rp -> MetaCodec ps qs rq rp
 meta route = metaBuilderToMetaCodec $ case route of
