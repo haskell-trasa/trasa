@@ -6,6 +6,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wall -Werror -Wno-unticked-promoted-constructors #-}
 module Main where
 
@@ -66,14 +67,12 @@ meta route = metaBuilderToMetaCodec $ case route of
   RouteStatus -> Meta (match "status" ./ capture int ./ end) qend bodyless (resp bodyUnit) M.get
   RouteQuery -> Meta (match "anything" ./ end) (optional "int" int .& qend) bodyless (resp bodyAeson) M.get
 
-prepare :: Route caps qrys req resp -> Arguments caps qrys req (Prepared Route resp)
-prepare = prepareWith meta
-
-link :: Prepared Route resp -> Url
-link = linkWith (metaCodecToMetaClient . meta)
-
-client :: Config -> Prepared Route resp -> IO (Either TrasaErr resp)
-client = clientWith (metaCodecToMetaClient . meta)
+instance HasMeta Route where
+  type CaptureStrategy Route = CaptureCodec
+  type QueryStrategy Route = CaptureCodec
+  type RequestBodyStrategy Route = Many BodyCodec
+  type ResponseBodyStrategy Route = Many BodyCodec
+  hasMeta = meta
 
 shouldRight :: Show resp => Config -> Prepared Route resp -> IO ()
 shouldRight conf route = do

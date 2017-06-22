@@ -1,6 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wall -Werror #-}
 module Trasa.Client
   (
@@ -9,6 +11,7 @@ module Trasa.Client
   , Authority(..)
   , Config(..)
   -- * Requests
+  , client
   , clientWith
   ) where
 
@@ -72,6 +75,21 @@ data Config = Config
   { configAuthority :: !Authority
   , configManager :: !N.Manager
   }
+
+client
+  :: ( HasMeta route
+     , HasCaptureEncoding (CaptureStrategy route)
+     , HasCaptureEncoding (QueryStrategy route)
+     , RequestBodyStrategy route ~ Many requestBodyStrat
+     , HasBodyEncoding requestBodyStrat
+     , ResponseBodyStrategy route ~ Many responseBodyStrat
+     , HasBodyDecoding responseBodyStrat
+     )
+  => Config
+  -> Prepared route response
+  -> IO (Either TrasaErr response)
+client = clientWith (transformMeta . hasMeta)
+  where transformMeta = mapMeta captureEncoding captureEncoding (mapMany bodyEncoding) (mapMany bodyDecoding)
 
 clientWith
   :: forall route response
