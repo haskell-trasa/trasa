@@ -2,7 +2,9 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 
@@ -30,7 +32,7 @@ main = do
     [ "src/Trasa"
     ]
   putStrLn "\nPRETTY ROUTER"
-  putStrLn (prettyRouter router)
+  putStrLn (prettyRouter (router @Route))
   putStrLn "\nRUNNING OTHER TESTS"
   defaultMain tests
 
@@ -51,10 +53,13 @@ unitTests = testGroup "Unit Tests"
   , testCase "link left pad route"
       $ link (prepare LeftPadR 5 "foo") @?= decodeUrl "/pad/left/5"
   , testCase "parse hello route"
-      $ parse "/hello" Nothing @?= Right (conceal (prepare HelloR))
+      $ parseUrl "/hello" @?= Right (conceal (prepare HelloR))
   , testCase "parse addition route"
-      $ parse "/add/6/3"  Nothing @?= Right (conceal (prepare AdditionR 6 3 Nothing))
+      $ parseUrl "/add/6/3" @?= Right (conceal (prepare AdditionR 6 3 Nothing))
   ]
+
+parseUrl :: T.Text -> Either TrasaErr (Concealed Route)
+parseUrl url = parse "GET" (decodeUrl url) Nothing
 
 data Route :: [Type] -> [Param] -> Bodiedness -> Type -> Type where
   EmptyR :: Route '[] '[] Bodyless Int
@@ -65,28 +70,23 @@ data Route :: [Type] -> [Param] -> Bodiedness -> Type -> Type where
   TrickyOneR :: Route '[Int] '[] Bodyless String
   TrickyTwoR :: Route '[Int,Int] '[] Bodyless String
 
-prepare :: Route cs qs rq rp -> Arguments cs qs rq (Prepared Route rp)
-prepare = prepareWith meta
+instance EnumerableRoute Route where
+  enumerateRoutes =
+    [ Constructed HelloR
+    , Constructed AdditionR
+    , Constructed IdentityR
+    , Constructed LeftPadR
+    , Constructed TrickyOneR
+    , Constructed TrickyTwoR
+    , Constructed EmptyR
+    ]
 
-link :: Prepared Route rp -> Url
-link = linkWith (metaCodecToMetaClient . meta)
-
-parse :: T.Text -> Maybe Content -> Either TrasaErr (Concealed Route)
-parse url = parseWith (metaCodecToMetaServer . meta) router M.get (decodeUrl url)
-
-allRoutes :: [Constructed Route]
-allRoutes =
-  [ Constructed HelloR
-  , Constructed AdditionR
-  , Constructed IdentityR
-  , Constructed LeftPadR
-  , Constructed TrickyOneR
-  , Constructed TrickyTwoR
-  , Constructed EmptyR
-  ]
-
-router :: Router Route
-router = routerWith (metaCodecToMetaServer . meta) allRoutes
+instance HasMeta Route where
+  type CaptureStrategy Route = CaptureCodec
+  type QueryStrategy Route = CaptureCodec
+  type RequestBodyStrategy Route = Many BodyCodec
+  type ResponseBodyStrategy Route = Many BodyCodec
+  hasMeta = meta
 
 meta :: Route ps qs rq rp -> MetaCodec ps qs rq rp
 meta x = metaBuilderToMetaCodec $ case x of
@@ -146,7 +146,7 @@ roundtripLinkParse c@(Concealed route captures querys reqBody) =
     RequestBodyAbsent -> True
   )
   ==>
-  Right c == parse (encodeUrl (link (Prepared route captures querys reqBody))) Nothing
+  Right c == parseUrl (encodeUrl (link (Prepared route captures querys reqBody)))
 
 -- This instance is defined only so that the test suite can do
 -- its job. It not not neccessary or recommended to write this

@@ -68,21 +68,21 @@ import Data.Text (Text)
 -- @trasa@ exports and partially apply them to the route metadata that
 -- we have created. We can start with prepare and link:
 --
--- >>> prepare = prepareWith meta
--- >>> :t prepare
--- prepare
+-- >>> prepareRoute = prepareWith meta
+-- >>> :t prepareRoute
+-- prepareRoute
 --   :: Route captures query request response
 --      -> Arguments captures query request (Prepared Route response)
 -- >>> :{
--- link = linkWith (metaCodecToMetaClient . meta)
+-- linkRoute = linkWith (metaCodecToMetaClient . meta)
 -- :}
 --
--- >>> :t link
--- link :: Prepared Route response -> Url
+-- >>> :t linkRoute
+-- linkRoute :: Prepared Route response -> Url
 --
 -- Now we can use link to encode our routes:
 --
--- >>> link (prepare AssignR Green 5)
+-- >>> linkRoute (prepareRoute AssignR Green 5)
 -- "/assign/Green/to/5"
 --
 --
