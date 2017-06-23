@@ -9,8 +9,10 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 import Trasa.Core
+import Trasa.Core.Implicit
 import qualified Trasa.Method as M
 import Trasa.Server
+import Trasa.Server.Implicit
 import Data.Vinyl
 import Data.Functor.Identity
 import Data.Kind (Type)

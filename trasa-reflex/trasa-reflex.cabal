@@ -15,6 +15,7 @@ description:         Reflex-frp integration for trasa
 library
   exposed-modules:     Reflex.PopState
                      , Trasa.Reflex
+                     , Trasa.Reflex.Implicit
   build-depends:       base >=4.9 && <4.10
                      , bytestring == 0.10.*
                      , text == 1.2.*

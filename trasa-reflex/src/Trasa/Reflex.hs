@@ -1,6 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE ExistentialQuantification #-}
@@ -15,13 +14,10 @@ module Trasa.Reflex
     MetaReflex
   , metaCodecToMetaReflex
   , metaReflexToMetaClient
-  , request
   , requestWith
-  , requestMany
   , requestManyWith
   , ResponseHandler(..)
   , requestMultiWith
-  , serve
   , serveWith
   , Arguments
   , handler) where
@@ -78,22 +74,6 @@ metaCodecToMetaReflex = mapMeta captureEncoding id id (mapMany bodyDecoding)
 metaReflexToMetaClient :: MetaReflex caps qrys req resp -> MetaClient caps qrys req resp
 metaReflexToMetaClient = mapMeta id captureEncoding (mapMany bodyEncoding) id
 
-request
-  :: ( MonadWidget t m
-     , HasMeta route
-     , HasCaptureEncoding (CaptureStrategy route)
-     , HasCaptureEncoding (QueryStrategy route)
-     , RequestBodyStrategy route ~ Many requestBodyStrat
-     , HasBodyEncoding requestBodyStrat
-     , ResponseBodyStrategy route ~ Many responseBodyStrat
-     , HasBodyDecoding responseBodyStrat
-     )
-  => Event t (Prepared route response)
-  -> m (Event t (Either TrasaErr response))
-request = requestWith (transMeta . meta)
-  where transMeta = mapMeta captureEncoding captureEncoding (mapMany bodyEncoding) (mapMany bodyDecoding)
-
-
 -- | Single request version of 'requestManyWith'
 requestWith
   :: forall t m route response
@@ -104,22 +84,6 @@ requestWith
 requestWith toMeta prepared =
   coerceEvent <$> requestManyWith toMeta preparedId
   where preparedId = coerceEvent prepared :: Event t (Identity (Prepared route response))
-
-requestMany
-  :: ( MonadWidget t m
-     , Traversable f
-     , HasMeta route
-     , HasCaptureEncoding (CaptureStrategy route)
-     , HasCaptureEncoding (QueryStrategy route)
-     , RequestBodyStrategy route ~ Many requestBodyStrat
-     , HasBodyEncoding requestBodyStrat
-     , ResponseBodyStrategy route ~ Many responseBodyStrat
-     , HasBodyDecoding responseBodyStrat
-     )
-  => Event t (f (Prepared route response))
-  -> m (Event t (f (Either TrasaErr response)))
-requestMany = requestManyWith (transMeta . meta)
-  where transMeta = mapMeta captureEncoding captureEncoding (mapMany bodyEncoding) (mapMany bodyDecoding)
 
 -- | Perform n requests and collect the results
 requestManyWith
@@ -172,29 +136,6 @@ requestMultiWith toMeta contResp =
               Just (Content typ _) -> M.insert "Content-Type" (TE.decodeUtf8 (N.renderHeader typ)) acceptHeader
             acceptHeader = "Accept" =: (TE.decodeUtf8 . BS.intercalate ", " . fmap N.renderHeader . toList) accepts
             Payload _ content accepts = payloadWith toMeta p
-
-serve
-  :: ( MonadWidget t m
-     , HasMeta route
-     , HasCaptureEncoding (CaptureStrategy route)
-     , HasCaptureDecoding (CaptureStrategy route)
-     , HasCaptureCodec (QueryStrategy route)
-     , RequestBodyStrategy route ~ Many requestBodyStrat
-     , HasBodyCodec requestBodyStrat
-     , ResponseBodyStrategy route ~ Many responseBodyStrat
-     , HasBodyDecoding responseBodyStrat
-     , EnumerableRoute route
-     )
-  => (forall caps qrys req resp.
-      route caps qrys req resp ->
-      Rec Identity caps ->
-      Rec Parameter qrys ->
-      ResponseBody Identity resp ->
-      m (Event t (Concealed route)))
-  -> (TrasaErr -> m (Event t (Concealed route)))
-  -> m ()
-serve = serveWith (transMeta . meta) router
-  where transMeta = mapMeta captureEncoding captureCodec (mapMany bodyCodec) (mapMany bodyDecoding)
 
 -- | Used to serve single page apps
 serveWith

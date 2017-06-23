@@ -26,8 +26,10 @@ import System.Exit (exitFailure)
 import qualified Network.HTTP.Types.Status as N
 import qualified Network.HTTP.Client as N
 import Trasa.Core
+import Trasa.Core.Implicit
 import qualified Trasa.Method as M
 import Trasa.Client
+import Trasa.Client.Implicit
 
 data Ip = Ip
   { origin :: IPv4

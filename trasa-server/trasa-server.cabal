@@ -15,7 +15,8 @@ description: WAI integration for trasa
 library
   hs-source-dirs: src
   exposed-modules:
-    Trasa.Server
+      Trasa.Server
+    , Trasa.Server.Implicit
   build-depends:
       base >= 4.7 && < 5
     , bytestring == 0.10.*

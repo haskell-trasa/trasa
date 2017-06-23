@@ -1,13 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE PolyKinds #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
@@ -15,7 +8,6 @@
 module Trasa.Server
   ( TrasaT
   , runTrasaT
-  , serve
   , serveWith
   ) where
 
@@ -60,26 +52,6 @@ runTrasaT
   -> M.Map (CI BS.ByteString) T.Text -- ^ Headers
   -> m (Either TrasaErr a, M.Map (CI BS.ByteString) T.Text)
 runTrasaT trasa headers = (flip runReaderT headers . flip runStateT M.empty . runExceptT  . unTrasaT) trasa
-
-serve
-  :: ( HasMeta route
-     , HasCaptureDecoding (CaptureStrategy route)
-     , HasCaptureDecoding (QueryStrategy route)
-     , RequestBodyStrategy route ~ Many requestBodyStrat
-     , HasBodyDecoding requestBodyStrat
-     , ResponseBodyStrategy route ~ Many responseBodyStrat
-     , HasBodyEncoding responseBodyStrat
-     , EnumerableRoute route )
-  => (forall caps qrys req resp
-     .  route caps qrys req resp
-     -> Rec Identity caps
-     -> Rec Parameter qrys
-     -> RequestBody Identity req
-     -> TrasaT IO resp)
-  -> WAI.Application
-serve makeResponse = serveWith (transformMeta . meta) makeResponse router
-  where transformMeta = mapMeta captureDecoding captureDecoding (mapMany bodyDecoding) (mapMany bodyEncoding)
-
 
 serveWith
   :: (forall caps qrys req resp. route caps qrys req resp -> MetaServer caps qrys req resp)

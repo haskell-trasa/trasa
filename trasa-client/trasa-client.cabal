@@ -13,6 +13,7 @@ description:         Http client integration for trasa
 
 library
   exposed-modules:     Trasa.Client
+                     , Trasa.Client.Implicit
   build-depends:       base >= 4.9 && < 4.10
                      , bytestring == 0.10.*
                      , binary == 0.8.*
