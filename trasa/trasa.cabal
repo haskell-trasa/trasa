@@ -26,6 +26,7 @@ library
     Trasa.Codec
     Trasa.Error
     Trasa.Core
+    Trasa.Core.Implicit
     Trasa.Tutorial
   build-depends:
       base >= 4.7 && < 5

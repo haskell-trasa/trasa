@@ -11,6 +11,7 @@
 
 import Text.Read (readMaybe)
 import Trasa.Core
+import Trasa.Core.Implicit
 import qualified Trasa.Method as M
 import Data.Vinyl
 import Data.Kind (Type)

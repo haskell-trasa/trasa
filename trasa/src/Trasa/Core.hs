@@ -1,6 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE GADTs #-}
@@ -26,9 +25,6 @@ module Trasa.Core
   , conceal
   , concealedToPrepared
   , mapConstructed
-  -- ** Classes
-  , HasMeta(..)
-  , EnumerableRoute(..)
   -- * Request Types
   -- ** Method
   , Method
@@ -46,16 +42,12 @@ module Trasa.Core
   , TrasaErr(..)
   , status
   -- * Using Routes
-  , prepare
   , prepareWith
-  , dispatchWith
-  , parse
-  , parseWith
-  , link
   , linkWith
+  , dispatchWith
+  , parseWith
   , payloadWith
   , requestWith
-  , router
   , routerWith
   -- * Defining Routes
   -- ** Path
@@ -329,15 +321,6 @@ metaBuilderToMetaCodec (Meta path query reqBody respBody method) = Meta
 
 type MetaCodec = Meta CaptureCodec CaptureCodec (Many BodyCodec) (Many BodyCodec)
 
-class HasMeta route where
-  type CaptureStrategy route :: Type -> Type
-  type QueryStrategy route :: Type -> Type
-  type RequestBodyStrategy route :: Type -> Type
-  type ResponseBodyStrategy route :: Type -> Type
-  meta
-    :: route caps qrys req resp
-    -> Meta (CaptureStrategy route) (QueryStrategy route) (RequestBodyStrategy route) (ResponseBodyStrategy route) caps qrys req resp
-
 type MetaClient = Meta CaptureEncoding CaptureEncoding (Many BodyEncoding) (Many BodyDecoding)
 
 metaCodecToMetaClient :: MetaCodec caps qrys req resp -> MetaClient caps qrys req resp
@@ -358,18 +341,6 @@ linkWith
 linkWith toMeta (Prepared route captures querys _) =
   encodePieces (metaPath m) (metaQuery m) captures querys
   where m = toMeta route
-
-link
-  :: (HasMeta route, HasCaptureEncoding (CaptureStrategy route), HasCaptureEncoding (QueryStrategy route))
-  => Prepared route response
-  -> Url
-link = linkWith toMeta
-  where
-    toMeta route = m
-      { metaPath = mapPath captureEncoding (metaPath m)
-      , metaQuery = mapQuery captureEncoding (metaQuery m)
-      }
-      where m = meta route
 
 data Payload = Payload
   { payloadUrl :: !Url
@@ -516,14 +487,6 @@ dispatchWith toMeta makeResponse madeRouter method accepts url mcontent =
       encodeResponseBody accepts (metaResponseBody (toMeta route)) <$>
       makeResponse route path querys reqBody
 
-class EnumerableRoute route where
-  enumerateRoutes :: [Constructed route]
-
-router
-  :: (HasMeta route, HasCaptureDecoding (CaptureStrategy route), EnumerableRoute route)
-  => Router route
-router = routerWith (mapMetaPath captureDecoding . meta) enumerateRoutes
-
 -- | Build a router from all the possible routes, and methods to turn routes into needed metadata
 routerWith
   :: forall route qryCodec reqCodec respCodec
@@ -536,18 +499,6 @@ routerWith toMeta = Router . foldMap buildRouter
     buildRouter (Constructed route) = singletonIxedRouter route (metaMethod m) (metaPath m)
       where m = toMeta route
 
-parse
-  :: ( HasMeta route
-     , HasCaptureDecoding (CaptureStrategy route)
-     , HasCaptureDecoding (QueryStrategy route)
-     , RequestBodyStrategy route ~ Many strat
-     , HasBodyDecoding strat
-     , EnumerableRoute route )
-  => Method -- ^ Request Method
-  -> Url -- ^ Everything after the authority
-  -> Maybe Content -- ^ Request content type and body
-  -> Either TrasaErr (Concealed route)
-parse = parseWith (mapMetaQuery captureDecoding . mapMetaRequestBody (mapMany bodyDecoding) . meta) router
 
 -- | Parses the path, the querystring, and the request body.
 parseWith
@@ -656,11 +607,6 @@ type family Arguments (pieces :: [Type]) (querys :: [Param]) (body :: Bodiedness
   Arguments '[] (q ': qs) r b = ParamBase q -> Arguments '[] qs r b
   Arguments (c ': cs) qs b r = c -> Arguments cs qs b r
 
-prepare
-  :: HasMeta route
-  => route captures queries request response
-  -> Arguments captures queries request (Prepared route response)
-prepare = prepareWith meta
 
 -- | Used my users to define a function called prepare, see tutorial
 prepareWith
