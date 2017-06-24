@@ -1,12 +1,12 @@
 name: trasa
-version: 0.2
+version: 0.3
 synopsis: Type Safe Web Routing
 homepage: https://github.com/haskell-trasa/trasa#readme
 license: BSD3
 license-file: LICENSE
-author: Andrew Martin
-maintainer: andrew.thaddeus@gmail.com
-copyright: 2017 Andrew Martin
+author: Kyle McKean
+maintainer: mckean.kylej@gmail.com
+copyright: 2017 Kyle McKean
 category: Web
 build-type: Simple
 cabal-version: >=1.10

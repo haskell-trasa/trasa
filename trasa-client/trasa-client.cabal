@@ -1,5 +1,5 @@
 name:                trasa-client
-version:             0.2
+version:             0.3
 synopsis:            Type safe http requests
 license:             MIT
 license-file:        LICENSE

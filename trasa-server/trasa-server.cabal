@@ -1,5 +1,5 @@
 name: trasa-server
-version: 0.2
+version: 0.3
 synopsis: Type safe web server
 homepage: https://github.com/haskell-trasa/trasa#readme
 license: BSD3
