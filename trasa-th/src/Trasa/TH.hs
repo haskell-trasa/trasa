@@ -9,7 +9,6 @@ module Trasa.TH
   , CaptureRep(..)
   , ParamRep(..)
   , QueryRep(..)
-  , BodiednessRep(..)
   , RouteRep(..)
   , RoutesRep(..)
   , routeDataType
@@ -21,14 +20,14 @@ module Trasa.TH
 
 import Data.Kind (Type)
 import Data.Maybe (listToMaybe,mapMaybe)
+import qualified Data.List.NonEmpty as NE
 import Language.Haskell.TH hiding (Type)
 import Language.Haskell.TH.Quote
 import qualified Language.Haskell.TH as TH
-import qualified Text.Megaparsec as MP
 import Trasa.Core
 
 import Trasa.TH.Types
-import Trasa.TH.Parse (parseRouteReps)
+import Trasa.TH.Parse (parseRoutesRep)
 
 genCodec :: Name -> Q CodecRep
 genCodec name = reify name >>= \case
@@ -58,8 +57,8 @@ routeDataTypeCodec (RoutesRep routeStr routeReps) = do
         ConT rt `AppT`
         typeList (mapMaybe captureType captures) `AppT`
         typeList (fmap (paramType . queryRepParam) queries) `AppT`
-        bodiednessRepToBodiedness request `AppT`
-        codecRepType response
+        bodiednessType request `AppT`
+        responseType response
     captureType :: CaptureRep CodecRep -> Maybe TH.Type
     captureType = \case
       MatchRep _ -> Nothing
@@ -69,10 +68,12 @@ routeDataTypeCodec (RoutesRep routeStr routeReps) = do
       FlagRep -> PromotedT (mkName "Flag")
       OptionalRep (CodecRep _ _ typ) -> PromotedT (mkName "Optional") `AppT` typ
       ListRep (CodecRep _ _ typ) -> PromotedT (mkName "List") `AppT` typ
-    bodiednessRepToBodiedness :: BodiednessRep CodecRep -> TH.Type
-    bodiednessRepToBodiedness = \case
-      BodyRep (CodecRep _ _ typ) -> PromotedT (mkName "Body") `AppT` typ
-      BodylessRep -> PromotedT (mkName "Bodyless")
+    bodiednessType :: [CodecRep] -> TH.Type
+    bodiednessType = \case
+      [] -> PromotedT (mkName "Bodyless")
+      (CodecRep _ _ typ:_) -> PromotedT (mkName "Body") `AppT` typ
+    responseType = \case
+      (CodecRep _ _ typ NE.:| _) -> typ
 
 routeDataType :: RoutesRep Name -> Q Dec
 routeDataType = genCodecs routeDataTypeCodec
@@ -96,14 +97,15 @@ metaInstanceCodec (RoutesRep routeStr routeReps) = do
       typ = ConT (mkName "HasMeta") `AppT` ConT route
   capStrat <- search routeRepCaptures capCodec [t| CaptureCodec |]
   qryStrat <- search routeRepQueries (paramCodec . queryRepParam) [t| CaptureCodec |]
-  reqBodyStrat <- search ((:[]) .routeReqRequest) bCodec [t| BodyCodec |]
-  respBodyStrat <- search ((:[]) . routeReqResponse) (Just . codecRepCodec) [t| BodyCodec |]
+  reqBodyStrat <- search routeReqRequest (Just . codecRepCodec)  [t| BodyCodec |]
+  respBodyStrat <- search (NE.toList . routeReqResponse) (Just . codecRepCodec) [t| BodyCodec |]
+  many <- [t| Many |]
   let mkTypeFamily str strat = TySynInstD (mkName str) (TySynEqn [ConT route] strat)
       typeFamilies =
         [ mkTypeFamily "CaptureStrategy" capStrat
         , mkTypeFamily "QueryStrategy" qryStrat
-        , mkTypeFamily "RequestBodyStrategy" reqBodyStrat
-        , mkTypeFamily "ResponseBodyStrategy" respBodyStrat
+        , mkTypeFamily "RequestBodyStrategy" (many `AppT` reqBodyStrat)
+        , mkTypeFamily "ResponseBodyStrategy" (many `AppT` respBodyStrat)
         ]
   lam <- newName "route"
   let metaExp = LamE [VarP lam] (CaseE (VarE lam) (fmap routeRepToMetaPattern routeReps))
@@ -111,7 +113,7 @@ metaInstanceCodec (RoutesRep routeStr routeReps) = do
   return (InstanceD Nothing [] typ (typeFamilies ++ [metaFunction]))
   where
     search :: (RouteRep CodecRep -> [b]) -> (b -> Maybe TH.Type) -> Q TH.Type -> Q TH.Type
-    search f g err = case listToMaybe routeReps >>= \b -> listToMaybe (f b) >>= g of
+    search f g err = case listToMaybe (mapMaybe g (routeReps >>= f)) of
       Just t -> return t
       Nothing -> err
     capCodec :: CaptureRep CodecRep -> Maybe TH.Type
@@ -123,12 +125,8 @@ metaInstanceCodec (RoutesRep routeStr routeReps) = do
       FlagRep -> Nothing
       OptionalRep (CodecRep _ codec _) -> Just codec
       ListRep (CodecRep _ codec _) -> Just codec
-    bCodec :: BodiednessRep CodecRep -> Maybe TH.Type
-    bCodec = \case
-      BodyRep (CodecRep _ codec _) -> Just codec
-      BodylessRep -> Nothing
     routeRepToMetaPattern :: RouteRep CodecRep -> Match
-    routeRepToMetaPattern (RouteRep name method caps qrys req res) =
+    routeRepToMetaPattern (RouteRep name method caps qrys req _res) =
       Match (ConP (mkName name) []) (NormalB expr) []
       where
         expr =
@@ -149,10 +147,11 @@ metaInstanceCodec (RoutesRep routeStr routeReps) = do
           ListRep (CodecRep n _ _) -> VarE (mkName "list") `AppE` lit `AppE` VarE n
           where lit = LitE (StringL idt)
         reqE = case req of
-          BodylessRep -> VarE (mkName "bodyless")
-          BodyRep (CodecRep n _ _) -> VarE (mkName "body") `AppE` VarE n
-        respE = case res of
-          CodecRep n _ _ -> VarE (mkName "resp") `AppE` VarE n
+          [] -> VarE (mkName "bodyless")
+          _ ->
+            VarE (mkName "body") `AppE`
+            ParensE (VarE (mkName "Many") `AppE` (UInfixE undefined (VarE (mkName ":|")) undefined))
+        respE = VarE (mkName "int")
         methodE = LitE (StringL method)
 
 metaInstance :: RoutesRep Name -> Q Dec
@@ -164,13 +163,13 @@ trasa routeRepNames = do
   rt <- routeDataTypeCodec routeReps
   cons <- enumRoutesInstanceCodec routeReps
   m <- metaInstanceCodec routeReps
-  return ([rt,cons,m])
+  return [rt,cons,m]
 
 parseTrasa :: QuasiQuoter
 parseTrasa = QuasiQuoter err err err quoter
   where
     err _ = fail "parseTrasa: This quasi quoter should only be used on the top level"
     quoter :: String -> Q [Dec]
-    quoter str = case MP.parse parseRouteReps "" str of
-      Left e -> fail (MP.parseErrorPretty e)
+    quoter str = case parseRoutesRep str of
+      Left e -> fail e
       Right routeRepNames -> trasa routeRepNames

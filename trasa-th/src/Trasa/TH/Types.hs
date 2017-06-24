@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveTraversable #-}
 module Trasa.TH.Types where
 
+import qualified Data.List.NonEmpty as NE
 import Language.Haskell.TH
 
 data CodecRep = CodecRep
@@ -25,18 +26,13 @@ data QueryRep codecRep = QueryRep
   , queryRepParam :: ParamRep codecRep
   } deriving (Show,Foldable,Functor,Traversable)
 
-data BodiednessRep codecRep
-  = BodyRep codecRep
-  | BodylessRep
-  deriving (Show,Foldable,Functor,Traversable)
-
 data RouteRep codecRep = RouteRep
   { routeRepName :: String
   , routeRepMethod :: String
   , routeRepCaptures :: [CaptureRep codecRep]
   , routeRepQueries :: [QueryRep codecRep]
-  , routeReqRequest :: BodiednessRep codecRep
-  , routeReqResponse :: codecRep
+  , routeReqRequest :: [codecRep]
+  , routeReqResponse :: NE.NonEmpty codecRep
   } deriving (Show,Foldable,Functor,Traversable)
 
 data RoutesRep codecRep = RoutesRep

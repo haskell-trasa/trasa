@@ -148,7 +148,7 @@ import qualified Network.HTTP.Media.MediaType as N
 import qualified Network.HTTP.Media.Accept as N
 import qualified Data.HashMap.Strict as HM
 import Data.HashMap.Strict (HashMap)
-import Data.Vinyl (Rec(..),rmap)
+import Data.Vinyl (Rec(..),rmap,rtraverse)
 import Data.Vinyl.TypeLevel (type (++))
 
 import Trasa.Method
@@ -401,7 +401,7 @@ decodeRequestBody reqDec mcontent = case reqDec of
   where
     wrongBody = Left (status N.status415)
     go :: [BodyDecoding a] -> N.MediaType -> LBS.ByteString -> Either TrasaErr (RequestBody Identity (Body a))
-    go [] _ _ = Left (status N.status400)
+    go [] _ _ = Left (status N.status415)
     go (BodyDecoding medias dec:decs) media bod = case any (flip N.matches media) medias of
       True -> bimap (TrasaErr N.status415 . LBS.fromStrict . T.encodeUtf8)
                     (RequestBodyPresent . Identity)
@@ -550,26 +550,23 @@ parsePathWith (Router r0) method pieces0 =
        in res1 ++ res2
 
 parseQueryWith :: Rec (Query CaptureDecoding) querys -> QueryString -> Either TrasaErr (Rec Parameter querys)
-parseQueryWith decoding (QueryString querys) = go decoding
+parseQueryWith decoding (QueryString querys) = rtraverse param decoding
   where
-    go :: Rec (Query CaptureDecoding) qrys -> Either TrasaErr (Rec Parameter qrys)
-    go RNil = Right RNil
-    go (q :& qs) = (:&) <$> param <*> go qs
-      where
-        param = case q of
-          QueryFlag key -> Right (ParameterFlag (HM.member key querys))
-          QueryOptional key (CaptureDecoding dec) -> case HM.lookup key querys of
-            Nothing -> Right (ParameterOptional Nothing)
-            Just query -> case query of
-              QueryParamFlag -> Left (TrasaErr N.status400 "query flag given when key-value expected")
-              QueryParamSingle txt -> Right (ParameterOptional (dec txt))
-              QueryParamList _ -> Left (TrasaErr N.status400 "query param list given when key-value expected")
-          QueryList key (CaptureDecoding dec) -> case HM.lookup key querys of
-            Nothing -> Right (ParameterList [])
-            Just query -> case query of
-              QueryParamFlag -> Left (TrasaErr N.status400 "query flag given when list expected")
-              QueryParamSingle txt -> Right (ParameterList (maybe [] (:[]) (dec txt)))
-              QueryParamList txts -> Right (ParameterList (mapMaybe dec txts))
+    param :: forall qry. Query CaptureDecoding qry -> Either TrasaErr (Parameter qry)
+    param = \case
+      QueryFlag key -> Right (ParameterFlag (HM.member key querys))
+      QueryOptional key (CaptureDecoding dec) -> case HM.lookup key querys of
+        Nothing -> Right (ParameterOptional Nothing)
+        Just query -> case query of
+          QueryParamFlag -> Left (TrasaErr N.status400 "query flag given when key-value expected")
+          QueryParamSingle txt -> Right (ParameterOptional (dec txt))
+          QueryParamList _ -> Left (TrasaErr N.status400 "query param list given when key-value expected")
+      QueryList key (CaptureDecoding dec) -> case HM.lookup key querys of
+        Nothing -> Right (ParameterList [])
+        Just query -> case query of
+          QueryParamFlag -> Left (TrasaErr N.status400 "query flag given when list expected")
+          QueryParamSingle txt -> Right (ParameterList (maybe [] (:[]) (dec txt)))
+          QueryParamList txts -> Right (ParameterList (mapMaybe dec txts))
 
 decodeCaptureVector ::
      IxedRec CaptureDecoding n xs

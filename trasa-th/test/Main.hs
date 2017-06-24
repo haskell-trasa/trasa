@@ -4,9 +4,12 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# OPTIONS_GHC -Wall -Werror -ddump-splices #-}
 module Main where
 
+import Data.List.NonEmpty
 import Trasa.Core
+import Trasa.Core.Implicit
 import Trasa.TH
 
 int :: CaptureEncoding Int
@@ -27,23 +30,25 @@ $(trasa (
   [ RouteRep
       "Add"
       "GET"
-      [CaptureRep 'int, CaptureRep 'int, MatchRep "foobar"]
-      [QueryRep "int" (OptionalRep 'int)]
-      BodylessRep
-      'bodyInt
+      [MatchRep "add",CaptureRep 'int, CaptureRep 'int]
+      [QueryRep "third" (OptionalRep 'int)]
+      []
+      ('bodyInt :| [])
   , RouteRep
       "Blog"
       "POST"
-      []
+      [MatchRep "blog"]
       [QueryRep "id" (ListRep 'int)]
-      (BodyRep 'bodyString)
-      'bodyUnit
+      ['bodyString]
+      ('bodyUnit :| [])
   ]))
 
-[parseTrasa|
-Type: ParsedRoute
-ParsedAdd GET /add/:int/:int?three=int Bodyless int
-|]
+
+-- [parseTrasa|
+--  data-type: ParsedRoute
+--  ParsedAdd GET /add/:int/:int?third=int [] bodyInt
+--  ParsedBlog POST /?id=[int] [bodyString] bodyUnit
+-- |]
 
 main :: IO ()
 main = do
