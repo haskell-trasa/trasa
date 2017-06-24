@@ -87,7 +87,7 @@ shouldRight conf route = do
 main :: IO ()
 main = do
   manager <- N.newManager N.defaultManagerSettings
-  let conf = Config (Authority Http "httpbin.org" Nothing) manager
+  let conf = Config (Authority Http "httpbin.org" Nothing) mempty manager
   res <- catch (client conf (prepare RouteHome)) $ \(_ :: SomeException) -> return (Left (status N.status400))
   case res of
     Left err  -> do

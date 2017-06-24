@@ -18,6 +18,8 @@ library
                      , bytestring == 0.10.*
                      , binary == 0.8.*
                      , text == 1.2.*
+                     , containers >= 0.5
+                     , case-insensitive == 1.2.*
                      , http-types == 0.9.*
                      , http-media == 0.6.*
                      , http-client == 0.5.*

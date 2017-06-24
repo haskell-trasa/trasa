@@ -23,6 +23,8 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy as LT hiding (singleton)
 import qualified Data.Text.Lazy.Builder as LT
 import qualified Data.Text.Lazy.Builder.Int as LT
+import qualified Data.Map.Strict as M
+import Data.CaseInsensitive (CI)
 import qualified Network.HTTP.Types.URI as N
 import qualified Network.HTTP.Types.Header as N
 import qualified Network.HTTP.Types.Status as N
@@ -68,8 +70,20 @@ encodeQueryBS =
 encodeAcceptBS :: NE.NonEmpty N.MediaType -> BS.ByteString
 encodeAcceptBS = BS.intercalate "; " . fmap N.renderHeader . NE.toList
 
+encodeHeaders
+  :: NE.NonEmpty N.MediaType
+  -> Maybe Content
+  -> M.Map (CI BS.ByteString) T.Text
+  -> [(CI BS.ByteString,BS.ByteString)]
+encodeHeaders accepts mcontent =
+  M.toList .
+  M.insert N.hAccept (encodeAcceptBS accepts) .
+  maybe id (M.insert N.hContentType . N.renderHeader . contentType) mcontent .
+  fmap TE.encodeUtf8
+
 data Config = Config
   { configAuthority :: !Authority
+  , configHeaders :: !(M.Map (CI BS.ByteString) T.Text)
   , configManager :: !N.Manager
   }
 
@@ -96,7 +110,7 @@ clientWith toMeta config =
             Just typ -> Right (Content typ body)
         False -> Left (TrasaErr status body)
       where
-        Config (Authority scheme host port) manager = config
+        Config (Authority scheme host port) headers manager = config
         req = N.defaultRequest
           { N.method = TE.encodeUtf8 $ encodeMethod method
           , N.secure = schemeToSecure scheme
@@ -104,9 +118,7 @@ clientWith toMeta config =
           , N.port = maybe (schemeToPort scheme) fromIntegral port
           , N.path = encodePathBS path
           , N.queryString = encodeQueryBS query
-          , N.requestHeaders = [(N.hAccept,encodeAcceptBS accepts)] ++ case mcontent of
-              Nothing -> []
-              Just (Content typ _) -> [(N.hContentType,N.renderHeader typ)]
+          , N.requestHeaders = encodeHeaders accepts mcontent headers
           , N.requestBody = case mcontent of
               Nothing -> N.RequestBodyLBS ""
               Just (Content _ reqBody) -> N.RequestBodyLBS reqBody
