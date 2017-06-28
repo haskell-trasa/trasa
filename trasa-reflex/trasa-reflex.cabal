@@ -16,7 +16,7 @@ library
   exposed-modules:     Reflex.PopState
                      , Trasa.Reflex
                      , Trasa.Reflex.Implicit
-  build-depends:       base >=4.9 && <4.10
+  build-depends:       base >= 4.9 && < 5
                      , bytestring == 0.10.*
                      , text == 1.2.*
                      , http-types == 0.9.*
