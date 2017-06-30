@@ -9,12 +9,13 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 
+import Data.Kind (Type)
+import Data.Void (Void)
 import Text.Read (readMaybe)
 import Trasa.Core
 import Trasa.Core.Implicit
 import qualified Trasa.Method as M
 import Data.Vinyl
-import Data.Kind (Type)
 
 import qualified Data.ByteString.Lazy.Char8 as LBSC
 import qualified Data.Text as T
@@ -63,14 +64,14 @@ unitTests = testGroup "Unit Tests"
 parseUrl :: T.Text -> Either TrasaErr (Concealed Route)
 parseUrl url = parse "GET" (decodeUrl url) Nothing
 
-data Route :: [Type] -> [Param] -> Bodiedness -> Type -> Type where
-  EmptyR :: Route '[] '[] Bodyless Int
-  HelloR :: Route '[] '[] Bodyless Int
-  AdditionR :: Route '[Int,Int] '[Optional Int] Bodyless Int
-  IdentityR :: Route '[String] '[] Bodyless String
-  LeftPadR :: Route '[Int] '[] (Body String) String
-  TrickyOneR :: Route '[Int] '[] Bodyless String
-  TrickyTwoR :: Route '[Int,Int] '[] Bodyless String
+data Route :: [Type] -> [Param] -> Bodiedness -> Clarity Void -> Type where
+  EmptyR :: Route '[] '[] Bodyless (Clear Int)
+  HelloR :: Route '[] '[] Bodyless (Clear Int)
+  AdditionR :: Route '[Int,Int] '[Optional Int] Bodyless (Clear Int)
+  IdentityR :: Route '[String] '[] Bodyless (Clear String)
+  LeftPadR :: Route '[Int] '[] (Body String) (Clear String)
+  TrickyOneR :: Route '[Int] '[] Bodyless (Clear String)
+  TrickyTwoR :: Route '[Int,Int] '[] Bodyless (Clear String)
 
 instance EnumerableRoute Route where
   enumerateRoutes =

@@ -14,6 +14,7 @@ import Trasa.Core
 import qualified Trasa.Method as M
 import Data.Vinyl (Rec)
 import Data.Kind (Type)
+import Data.Void (Void)
 import Data.Text (Text)
 
 -- $setup
@@ -31,11 +32,11 @@ import Data.Text (Text)
 -- >>> :{
 -- data Counter = Red | Green | Blue
 --   deriving (Show,Read)
--- data Route :: [Type] -> [Param] -> Bodiedness -> Type -> Type where
---   AssignR :: Route '[Counter,Int] '[] 'Bodyless ()
---   IncrementR :: Route '[Counter] '[] 'Bodyless Int
---   QueryR :: Route '[Counter] '[]Bodyless Int
---   TotalR :: Route '[] '[] 'Bodyless Int
+-- data Route :: [Type] -> [Param] -> Bodiedness -> Clarity Void -> Type where
+--   AssignR :: Route '[Counter,Int] '[] 'Bodyless ('Clear ())
+--   IncrementR :: Route '[Counter] '[] 'Bodyless ('Clear Int)
+--   QueryR :: Route '[Counter] '[]Bodyless ('Clear Int)
+--   TotalR :: Route '[] '[] 'Bodyless ('Clear Int)
 -- int :: CaptureCodec Int
 -- int = showReadCaptureCodec
 -- counter :: CaptureCodec Counter

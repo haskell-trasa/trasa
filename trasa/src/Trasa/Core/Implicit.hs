@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE PolyKinds #-}
 module Trasa.Core.Implicit
   (
     HasMeta(..)

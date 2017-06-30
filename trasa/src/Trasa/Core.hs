@@ -5,6 +5,8 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeApplications #-} -- Added only for proofs
+{-# LANGUAGE AllowAmbiguousTypes #-} -- Added only for proofs
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveFunctor #-}
@@ -15,6 +17,7 @@ module Trasa.Core
   (
   -- * Types
     Bodiedness(..)
+  , Clarity(..)
   , Content(..)
   , Payload(..)
   , Router
@@ -44,7 +47,6 @@ module Trasa.Core
   -- * Using Routes
   , prepareWith
   , linkWith
-  , dispatchWith
   , parseWith
   , payloadWith
   , requestWith
@@ -80,6 +82,7 @@ module Trasa.Core
   -- ** Response Body
   , ResponseBody(..)
   , resp
+  , raw
   , encodeResponseBody
   , decodeResponseBody
   , mapResponseBody
@@ -148,6 +151,8 @@ import qualified Network.HTTP.Media.MediaType as N
 import qualified Network.HTTP.Media.Accept as N
 import qualified Data.HashMap.Strict as HM
 import Data.HashMap.Strict (HashMap)
+import Unsafe.Coerce (unsafeCoerce)
+import Data.Type.Equality ((:~:)(..))
 import Data.Vinyl (Rec(..),rmap,rtraverse)
 import Data.Vinyl.TypeLevel (type (++))
 
@@ -188,13 +193,21 @@ mapRequestBody :: (forall x. rqf x -> rqf' x) -> RequestBody rqf request -> Requ
 mapRequestBody _ RequestBodyAbsent = RequestBodyAbsent
 mapRequestBody f (RequestBodyPresent reqBod) = RequestBodyPresent (f reqBod)
 
-newtype ResponseBody rpf response = ResponseBody { getResponseBody :: rpf response }
+data Clarity r = forall a. Clear a | Raw r
 
-resp :: rpf resp -> ResponseBody rpf resp
-resp = ResponseBody
+data ResponseBody :: (Type -> Type) -> Clarity r -> Type where
+  ResponseBodyClear :: !(f a) -> ResponseBody f (Clear a)
+  ResponseBodyRaw :: !r -> ResponseBody f (Raw r)
+
+resp :: rpf resp -> ResponseBody rpf (Clear resp)
+resp = ResponseBodyClear
+
+raw :: a -> ResponseBody rpf (Raw a)
+raw = ResponseBodyRaw
 
 mapResponseBody :: (forall x. rpf x -> rpf' x) -> ResponseBody rpf request -> ResponseBody rpf' request
-mapResponseBody f (ResponseBody resBod) = ResponseBody (f resBod)
+mapResponseBody f (ResponseBodyClear resBod) = ResponseBodyClear (f resBod)
+mapResponseBody _ (ResponseBodyRaw r) = ResponseBodyRaw r
 
 data Path :: (Type -> Type) -> [Type] -> Type where
   PathNil :: Path cap '[]
@@ -352,7 +365,7 @@ data Payload = Payload
 payloadWith
   :: forall route response
   .  (forall caps qrys req resp. route caps qrys req resp -> MetaClient caps qrys req resp)
-  -> Prepared route response
+  -> Prepared route (Clear response)
   -- ^ The route to be payload encoded
   -> Payload
 payloadWith toMeta p@(Prepared route _ _ reqBody) =
@@ -361,8 +374,9 @@ payloadWith toMeta p@(Prepared route _ _ reqBody) =
     url = linkWith toMeta p
     m = toMeta route
     content = encodeRequestBody (metaRequestBody m) reqBody
-    ResponseBody (Many decodings) = metaResponseBody m
-    accepts = bodyDecodingNames =<< decodings
+    accepts = case metaResponseBody m of
+      ResponseBodyClear (Many decs) -> decs >>= \case
+        BodyDecoding dec _ -> dec
 
 -- Only useful to implement packages like 'trasa-client'
 requestWith
@@ -370,15 +384,17 @@ requestWith
   => (forall caps qrys req resp. route caps qrys req resp -> MetaClient caps qrys req resp)
   -> (Method -> Url -> Maybe Content -> NonEmpty N.MediaType -> m (Either TrasaErr Content))
   -- ^ method, url, content, accepts -> response
-  -> Prepared route response
+  -> Prepared route (Clear response)
   -> m (Either TrasaErr response)
 requestWith toMeta run (Prepared route captures querys reqBody) =
   let m = toMeta route
       method = metaMethod m
       url = encodePieces (metaPath m) (metaQuery m) captures querys
       content = encodeRequestBody (metaRequestBody m) reqBody
-      respBodyDecs@(ResponseBody (Many decodings)) = metaResponseBody m
-      accepts = bodyDecodingNames =<< decodings
+      respBodyDecs = metaResponseBody m
+      accepts = case respBodyDecs of
+        ResponseBodyClear (Many decs) -> decs >>= \case
+          BodyDecoding dec _ -> dec
    in fmap (\c -> c >>= decodeResponseBody respBodyDecs) (run method url content accepts)
 
 encodeRequestBody :: RequestBody (Many BodyEncoding) request -> RequestBody Identity request -> Maybe Content
@@ -411,10 +427,10 @@ decodeRequestBody reqDec mcontent = case reqDec of
 encodeResponseBody
   :: forall response
   .  [N.MediaType]
-  -> ResponseBody (Many BodyEncoding) response
+  -> ResponseBody (Many BodyEncoding) (Clear response)
   -> response
   -> Either TrasaErr Content
-encodeResponseBody medias (ResponseBody encs) res = go (toList (getMany encs))
+encodeResponseBody medias (ResponseBodyClear encs) res = go (toList (getMany encs))
   where
     go :: [BodyEncoding response] -> Either TrasaErr Content
     go [] = Left (status N.status406)
@@ -427,8 +443,8 @@ encodeResponseBody medias (ResponseBody encs) res = go (toList (getMany encs))
       True  -> Just a
       False -> acceptable as ms
 
-decodeResponseBody :: ResponseBody (Many BodyDecoding) response -> Content -> Either TrasaErr response
-decodeResponseBody (ResponseBody (Many decodings)) (Content name content) = go (toList decodings)
+decodeResponseBody :: ResponseBody (Many BodyDecoding) (Clear response) -> Content -> Either TrasaErr response
+decodeResponseBody (ResponseBodyClear (Many decodings)) (Content name content) = go (toList decodings)
   where
     go :: [BodyDecoding response] -> Either TrasaErr response
     go [] = Left (status N.status415)
@@ -468,25 +484,6 @@ encodePieces pathEncoding queryEncoding path querys =
     encodeQueries (QueryList key (CaptureEncoding enc) :& encs) (ParameterList vals :& qs) =
        HM.insert key (QueryParamList (fmap enc vals)) (encodeQueries encs qs)
 
--- | Only useful to implement packages like 'trasa-server'
-dispatchWith
-  :: forall route m
-  .  Applicative m
-  => (forall caps qrys req resp. route caps qrys req resp -> MetaServer caps qrys req resp)
-  -> (forall caps qrys req resp. route caps qrys req resp -> Rec Identity caps -> Rec Parameter qrys -> RequestBody Identity req -> m resp)
-  -> Router route -- ^ Router
-  -> Method -- ^ Method
-  -> [N.MediaType] -- ^ Accept headers
-  -> Url -- ^ Everything after the authority
-  -> Maybe Content -- ^ Content type and request body
-  -> m (Either TrasaErr Content) -- ^ Encoded response
-dispatchWith toMeta makeResponse madeRouter method accepts url mcontent =
-  case parseWith toMeta madeRouter method url mcontent of
-    Left err -> pure (Left err)
-    Right (Concealed route path querys reqBody) ->
-      encodeResponseBody accepts (metaResponseBody (toMeta route)) <$>
-      makeResponse route path querys reqBody
-
 -- | Build a router from all the possible routes, and methods to turn routes into needed metadata
 routerWith
   :: forall route qryCodec reqCodec respCodec
@@ -496,7 +493,7 @@ routerWith
 routerWith toMeta = Router . foldMap buildRouter
   where
     buildRouter :: Constructed route -> IxedRouter route Z
-    buildRouter (Constructed route) = singletonIxedRouter route (metaMethod m) (metaPath m)
+    buildRouter (Constructed route) = singletonIxedRouter route (metaMethod m) (metaPath m) (metaResponseBody m)
       where m = toMeta route
 
 
@@ -668,7 +665,7 @@ handler = go
 -- | A route with all types hidden: the captures, the request body,
 --   and the response body. This is needed so that users can
 --   enumerate over all the routes.
-data Constructed :: ([Type] -> [Param] -> Bodiedness -> Type -> Type) -> Type where
+data Constructed :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> Type where
   Constructed :: !(route captures querys request response) -> Constructed route
 -- I dont really like the name Constructed, but I don't want to call it
 -- Some or Any since these get used a lot and a conflict would be likely.
@@ -680,11 +677,11 @@ mapConstructed ::
   -> Constructed route
 mapConstructed f (Constructed sub) = Constructed (f sub)
 
-data Pathed :: ([Type] -> [Param] -> Bodiedness -> Type -> Type) -> Type  where
+data Pathed :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> Type  where
   Pathed :: !(route captures querys request response) -> !(Rec Identity captures) -> Pathed route
 
 -- | Includes the route, path, query parameters, and request body.
-data Prepared :: ([Type] -> [Param] -> Bodiedness -> Type -> Type) -> Type -> Type where
+data Prepared :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> Clarity r -> Type where
   Prepared ::
        !(route captures querys request response)
     -> !(Rec Identity captures)
@@ -695,7 +692,7 @@ data Prepared :: ([Type] -> [Param] -> Bodiedness -> Type -> Type) -> Type -> Ty
 -- | Only needed to implement 'parseWith'. Most users do not need this.
 --   If you need to create a route hierarchy to provide breadcrumbs,
 --   then you will need this.
-data Concealed :: ([Type] -> [Param] -> Bodiedness -> Type -> Type) -> Type where
+data Concealed :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> Type where
   Concealed ::
        !(route captures querys request response)
     -> !(Rec Identity captures)
@@ -725,7 +722,7 @@ data Nat = S !Nat | Z
 
 newtype Router route = Router (IxedRouter route 'Z)
 
-data IxedRouter :: ([Type] -> [Param] -> Bodiedness -> Type -> Type) -> Nat -> Type where
+data IxedRouter :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> Nat -> Type where
   IxedRouter ::
        !(HashMap T.Text (IxedRouter route n))
     -> !(Maybe (IxedRouter route ('S n)))
@@ -743,7 +740,7 @@ instance Monoid (IxedRouter route n) where
   mempty = IxedRouter HM.empty Nothing HM.empty
   mappend = unionIxedRouter
 
-data IxedResponder :: ([Type] -> [Param] -> Bodiedness -> Type -> Type) -> Nat -> Type where
+data IxedResponder :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> Nat -> Type where
   IxedResponder ::
        !(route captures query request response)
     -> !(IxedRec CaptureDecoding n captures)
@@ -767,28 +764,19 @@ data LenPath :: Nat -> Type where
   LenPathCapture :: !(LenPath n) -> LenPath ('S n)
   LenPathMatch :: !T.Text -> !(LenPath n) -> LenPath n
 
--- Assumes length is in penultimate position.
-data HideIx :: (Nat -> k -> Type) -> k -> Type where
-  HideIx :: !(f n a) -> HideIx f a
-
--- toIxedRec :: Rec f xs -> HideIx (IxedRec f) xs
--- toIxedRec RNil = HideIx IxedRecNil
--- toIxedRec (r :& rs) = case toIxedRec rs of
---   HideIx x -> HideIx (IxedRecCons r x)
-
 snocVec :: a -> Vec n a -> Vec ('S n) a
 snocVec a VecNil = VecCons a VecNil
 snocVec a (VecCons b vnext) =
   VecCons b (snocVec a vnext)
 
-pathToIxedPath :: Path f xs -> HideIx (IxedPath f) xs
-pathToIxedPath PathNil = HideIx IxedPathNil
-pathToIxedPath (PathConsCapture c pnext) =
-  case pathToIxedPath pnext of
-    HideIx ixed -> HideIx (IxedPathCapture c ixed)
-pathToIxedPath (PathConsMatch s pnext) =
-  case pathToIxedPath pnext of
-    HideIx ixed -> HideIx (IxedPathMatch s ixed)
+type family Length (xs :: [k]) :: Nat where
+  Length '[] = Z
+  Length (x ': xs) = S (Length xs)
+
+pathToIxedPath :: Path f xs -> IxedPath f (Length xs) xs
+pathToIxedPath PathNil = IxedPathNil
+pathToIxedPath (PathConsCapture c pnext) = IxedPathCapture c (pathToIxedPath pnext)
+pathToIxedPath (PathConsMatch s pnext) = IxedPathMatch s (pathToIxedPath pnext)
 
 -- | Discards the static parts
 ixedPathToIxedRec :: IxedPath f n xs -> IxedRec f n xs
@@ -805,38 +793,47 @@ ixedPathToLenPath (IxedPathCapture _ pnext) =
 ixedPathToLenPath (IxedPathMatch s pnext) =
   LenPathMatch s (ixedPathToLenPath pnext)
 
-snocLenPathMatch :: T.Text -> LenPath n -> LenPath n
-snocLenPathMatch s x = case x of
-  LenPathNil -> LenPathMatch s LenPathNil
-  LenPathMatch t pnext -> LenPathMatch t (snocLenPathMatch s pnext)
-  LenPathCapture pnext -> LenPathCapture (snocLenPathMatch s pnext)
+type family (n :: Nat) + (m :: Nat) :: Nat where
+  Z + m = m
+  (S n) + m = S (n + m)
 
-snocLenPathCapture :: LenPath n -> LenPath ('S n)
-snocLenPathCapture x = case x of
-  LenPathNil -> LenPathCapture LenPathNil
-  LenPathMatch t pnext -> LenPathMatch t (snocLenPathCapture pnext)
-  LenPathCapture pnext -> LenPathCapture (snocLenPathCapture pnext)
+plusRightIdentity :: forall n. n :~: n + Z
+plusRightIdentity = unsafeCoerce Refl
+
+plusRightSucc :: forall n m. S (n + m) :~: n + S m
+plusRightSucc = unsafeCoerce Refl
+
+coerce :: a :~: b -> f a -> f b
+coerce Refl a = a
 
 reverseLenPathMatch :: LenPath n -> LenPath n
-reverseLenPathMatch = go
+reverseLenPathMatch = go LenPathNil
   where
-  go :: forall n. LenPath n -> LenPath n
-  go LenPathNil = LenPathNil
-  go (LenPathMatch s pnext) = snocLenPathMatch s (go pnext)
-  go (LenPathCapture pnext) = snocLenPathCapture (go pnext)
+  go :: forall n m. LenPath n -> LenPath m -> LenPath (n + m)
+  go acc LenPathNil = coerce (plusRightIdentity @n) acc
+  go acc (LenPathMatch s pnext) = go (LenPathMatch s acc) pnext
+  go acc (LenPathCapture (pnext :: LenPath m2)) = coerce (plusRightSucc @n @m2) (go (LenPathCapture acc) pnext)
 
-singletonIxedRouter ::
-  route captures querys request response -> Method -> Path CaptureDecoding captures -> IxedRouter route 'Z
-singletonIxedRouter route method capDecs = case pathToIxedPath capDecs of
-  HideIx ixedCapDecs ->
-    let ixedCapDecsRec = ixedPathToIxedRec ixedCapDecs
+singletonIxedRouter
+  :: route captures querys request response
+  -> Method
+  -> Path CaptureDecoding captures
+  -> ResponseBody rpf response
+  -> IxedRouter route 'Z
+singletonIxedRouter route method capDecs respBody =
+    let ixedCapDecs = pathToIxedPath capDecs
+        ixedCapDecsRec = ixedPathToIxedRec ixedCapDecs
         responder = IxedResponder route ixedCapDecsRec
         lenPath = reverseLenPathMatch (ixedPathToLenPath ixedCapDecs)
-     in singletonIxedRouterHelper responder method lenPath
+        isRaw :: Bool
+        isRaw = case respBody of
+          ResponseBodyClear _ -> False
+          ResponseBodyRaw _ -> True
+     in singletonIxedRouterHelper responder method lenPath isRaw
 
 singletonIxedRouterHelper ::
-  IxedResponder route n -> Method -> LenPath n -> IxedRouter route 'Z
-singletonIxedRouterHelper responder method path =
+  IxedResponder route n -> Method -> LenPath n -> Bool -> IxedRouter route 'Z
+singletonIxedRouterHelper responder method path _isRaw =
   let r = IxedRouter HM.empty Nothing (HM.singleton (encodeMethod method) [responder])
    in singletonIxedRouterGo r path
 
