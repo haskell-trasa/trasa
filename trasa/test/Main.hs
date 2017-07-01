@@ -10,7 +10,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 import Data.Kind (Type)
-import Data.Void (Void)
 import Text.Read (readMaybe)
 import Trasa.Core
 import Trasa.Core.Implicit
@@ -64,7 +63,7 @@ unitTests = testGroup "Unit Tests"
 parseUrl :: T.Text -> Either TrasaErr (Concealed Route)
 parseUrl url = parse "GET" (decodeUrl url) Nothing
 
-data Route :: [Type] -> [Param] -> Bodiedness -> Clarity Void -> Type where
+data Route :: [Type] -> [Param] -> Bodiedness -> Clarity -> Type where
   EmptyR :: Route '[] '[] Bodyless (Clear Int)
   HelloR :: Route '[] '[] Bodyless (Clear Int)
   AdditionR :: Route '[Int,Int] '[Optional Int] Bodyless (Clear Int)

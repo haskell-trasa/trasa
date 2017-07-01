@@ -11,6 +11,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+-- {-# LANGUAGE TypeInType #-}
 
 {-# OPTIONS_GHC -Wall -Werror -Wno-unticked-promoted-constructors #-}
 module Trasa.Core
@@ -193,9 +194,9 @@ mapRequestBody :: (forall x. rqf x -> rqf' x) -> RequestBody rqf request -> Requ
 mapRequestBody _ RequestBodyAbsent = RequestBodyAbsent
 mapRequestBody f (RequestBodyPresent reqBod) = RequestBodyPresent (f reqBod)
 
-data Clarity r = forall a. Clear a | Raw r
+data Clarity = forall a. Clear a | forall a. Raw a
 
-data ResponseBody :: (Type -> Type) -> Clarity r -> Type where
+data ResponseBody :: (Type -> Type) -> Clarity -> Type where
   ResponseBodyClear :: !(f a) -> ResponseBody f (Clear a)
   ResponseBodyRaw :: !r -> ResponseBody f (Raw r)
 
@@ -507,7 +508,10 @@ parseWith
   -> Maybe Content -- ^ Request content type and body
   -> Either TrasaErr (Concealed route)
 parseWith toMeta madeRouter method (Url encodedPath encodedQuery) mcontent = do
-  Pathed route captures <- maybe (Left (status N.status404)) Right
+  -- Currently, we are silently discarding path pieces for raw
+  -- routes. Reconsider this at some future time because it is not
+  -- actually that hard to support this.
+  Pathed route captures _ <- maybe (Left (status N.status404)) Right
     $ parsePathWith madeRouter method encodedPath
   let m = toMeta route
   querys <- parseQueryWith (metaQuery m) encodedQuery
@@ -528,23 +532,31 @@ parsePathWith (Router r0) method pieces0 =
      -> [T.Text] -- remaining pieces
      -> IxedRouter route n -- router fragment
      -> [Pathed route]
-  go captures ps (IxedRouter matches mcapture responders) = case ps of
-    [] -> case HM.lookup (encodeMethod method) responders of
-      Nothing -> []
-      Just respondersAtMethod ->
-        mapMaybe (\(IxedResponder route capDecs) ->
-          fmap (\x -> (Pathed route x)) (decodeCaptureVector capDecs captures)
-        ) respondersAtMethod
-    p : psNext ->
-      let res1 = maybe [] id $ fmap (go captures psNext) (HM.lookup p matches)
-          -- Since this uses snocVec to build up the captures,
-          -- this algorithm's complexity includes a term that is
-          -- O(n^2) in the number of captures. However, most routes
-          -- that I deal with have one or two captures. Occassionally,
-          -- I'll get one with four or five, but this happens
-          -- so infrequently that I'm not concerned about this.
-          res2 = maybe [] id $ fmap (go (snocVec p captures) psNext) mcapture
-       in res1 ++ res2
+  go captures ps (IxedRouter matches mcapture responders rawResponders) =
+    let encMethod = encodeMethod method in
+    case HM.lookup encMethod rawResponders of
+      Just rawRespondersAtMethod -> mapMaybe
+        (\(IxedResponder route capDecs) -> 
+          fmap (\x -> Pathed route x (ExtraPathRaw ps)) (decodeCaptureVector capDecs captures)
+        ) 
+        rawRespondersAtMethod
+      Nothing -> case ps of
+        [] -> case HM.lookup encMethod responders of
+          Nothing -> []
+          Just respondersAtMethod ->
+            mapMaybe (\(IxedResponder route capDecs) ->
+              fmap (\x -> (Pathed route x ExtraPathClear)) (decodeCaptureVector capDecs captures)
+            ) respondersAtMethod
+        p : psNext ->
+          let res1 = maybe [] id $ fmap (go captures psNext) (HM.lookup p matches)
+              -- Since this uses snocVec to build up the captures,
+              -- this algorithm's complexity includes a term that is
+              -- O(n^2) in the number of captures. However, most routes
+              -- that I deal with have one or two captures. Occassionally,
+              -- I'll get one with four or five, but this happens
+              -- so infrequently that I'm not concerned about this.
+              res2 = maybe [] id $ fmap (go (snocVec p captures) psNext) mcapture
+           in res1 ++ res2
 
 parseQueryWith :: Rec (Query CaptureDecoding) querys -> QueryString -> Either TrasaErr (Rec Parameter querys)
 parseQueryWith decoding (QueryString querys) = rtraverse param decoding
@@ -665,8 +677,8 @@ handler = go
 -- | A route with all types hidden: the captures, the request body,
 --   and the response body. This is needed so that users can
 --   enumerate over all the routes.
-data Constructed :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> Type where
-  Constructed :: !(route captures querys request response) -> Constructed route
+data Constructed :: ([Type] -> [Param] -> Bodiedness -> Clarity -> Type) -> Type where
+  Constructed :: !(route captures querys request (appResponse (resp :: Type))) -> Constructed route
 -- I dont really like the name Constructed, but I don't want to call it
 -- Some or Any since these get used a lot and a conflict would be likely.
 -- Think, think, think.
@@ -677,11 +689,15 @@ mapConstructed ::
   -> Constructed route
 mapConstructed f (Constructed sub) = Constructed (f sub)
 
-data Pathed :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> Type  where
-  Pathed :: !(route captures querys request response) -> !(Rec Identity captures) -> Pathed route
+data Pathed :: ([Type] -> [Param] -> Bodiedness -> Clarity -> Type) -> Type  where
+  Pathed :: !(route captures querys request response) -> !(Rec Identity captures) -> ExtraPath response -> Pathed route
+
+data ExtraPath :: Clarity -> Type where
+  ExtraPathRaw :: forall (a :: Type). [T.Text] -> ExtraPath ('Raw a)
+  ExtraPathClear :: forall (a :: Type). ExtraPath ('Clear a)
 
 -- | Includes the route, path, query parameters, and request body.
-data Prepared :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> Clarity r -> Type where
+data Prepared :: ([Type] -> [Param] -> Bodiedness -> Clarity -> Type) -> Clarity -> Type where
   Prepared ::
        !(route captures querys request response)
     -> !(Rec Identity captures)
@@ -692,7 +708,7 @@ data Prepared :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> Clari
 -- | Only needed to implement 'parseWith'. Most users do not need this.
 --   If you need to create a route hierarchy to provide breadcrumbs,
 --   then you will need this.
-data Concealed :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> Type where
+data Concealed :: ([Type] -> [Param] -> Bodiedness -> Clarity -> Type) -> Type where
   Concealed ::
        !(route captures querys request response)
     -> !(Rec Identity captures)
@@ -722,11 +738,19 @@ data Nat = S !Nat | Z
 
 newtype Router route = Router (IxedRouter route 'Z)
 
-data IxedRouter :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> Nat -> Type where
+data IxedRouter (f :: [Type] -> [Param] -> Bodiedness -> Clarity -> Type) (n :: Nat) where
   IxedRouter ::
        !(HashMap T.Text (IxedRouter route n))
+       -- All possible static matches
     -> !(Maybe (IxedRouter route ('S n)))
-    -> !(HashMap T.Text [IxedResponder route n]) -- Should be either zero or one, more than one means that there are trivially overlapped routes
+       -- A capture
+    -> !(HashMap T.Text [IxedResponder route Clear n])
+       -- This is a map from HTTP request methods to responders.
+       -- There should be either zero or one elements in each 
+       -- list, more than one means that there are trivially overlapped routes.
+    -> !(HashMap T.Text [IxedResponder route Raw n])
+       -- Request methods that result in a raw application.
+       -- This is usually empty.
     -> IxedRouter route n
 
 -- | This monoid instance is provided so that we can
@@ -735,16 +759,17 @@ data IxedRouter :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> Nat
 --   for IxedRouter. End users only have one way to create
 --   a router, and if they combine a Router with itself
 --   using mappend, it would result in Router in which all
---   routes were overlapped.
+--   routes were overlapped. Just to be clear, this
+--   instance is completely lawful.
 instance Monoid (IxedRouter route n) where
-  mempty = IxedRouter HM.empty Nothing HM.empty
+  mempty = IxedRouter HM.empty Nothing HM.empty HM.empty
   mappend = unionIxedRouter
 
-data IxedResponder :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> Nat -> Type where
-  IxedResponder ::
-       !(route captures query request response)
+data IxedResponder :: ([Type] -> [Param] -> Bodiedness -> Clarity -> Type) -> (Type -> Clarity) -> Nat -> Type where
+  IxedResponder :: forall (appResponse :: Type -> Clarity) (resp :: Type) route captures query request n.
+       !(route captures query request (appResponse resp))
     -> !(IxedRec CaptureDecoding n captures)
-    -> IxedResponder route n
+    -> IxedResponder route appResponse n
 
 data IxedRec :: (k -> Type) -> Nat -> [k] -> Type where
   IxedRecNil :: IxedRec f 'Z '[]
@@ -814,45 +839,50 @@ reverseLenPathMatch = go LenPathNil
   go acc (LenPathMatch s pnext) = go (LenPathMatch s acc) pnext
   go acc (LenPathCapture (pnext :: LenPath m2)) = coerce (plusRightSucc @n @m2) (go (LenPathCapture acc) pnext)
 
-singletonIxedRouter
-  :: route captures querys request response
+singletonIxedRouter :: forall (appResponse :: Type -> Clarity) (resp :: Type) (route :: ([Type] -> [Param] -> Bodiedness -> Clarity -> Type)) rpf captures request querys.
+     route captures querys request (appResponse resp)
   -> Method
   -> Path CaptureDecoding captures
-  -> ResponseBody rpf response
+  -> ResponseBody rpf (appResponse resp)
   -> IxedRouter route 'Z
 singletonIxedRouter route method capDecs respBody =
     let ixedCapDecs = pathToIxedPath capDecs
         ixedCapDecsRec = ixedPathToIxedRec ixedCapDecs
         responder = IxedResponder route ixedCapDecsRec
         lenPath = reverseLenPathMatch (ixedPathToLenPath ixedCapDecs)
-        isRaw :: Bool
-        isRaw = case respBody of
-          ResponseBodyClear _ -> False
-          ResponseBodyRaw _ -> True
-     in singletonIxedRouterHelper responder method lenPath isRaw
+     in singletonIxedRouterHelper respBody responder method lenPath
 
-singletonIxedRouterHelper ::
-  IxedResponder route n -> Method -> LenPath n -> Bool -> IxedRouter route 'Z
-singletonIxedRouterHelper responder method path _isRaw =
-  let r = IxedRouter HM.empty Nothing (HM.singleton (encodeMethod method) [responder])
+singletonIxedRouterHelper :: forall (appResponse :: Type -> Clarity) (resp :: Type) (n :: Nat) (route :: ([Type] -> [Param] -> Bodiedness -> Clarity -> Type)) rpf.
+  ResponseBody rpf (appResponse resp) -> IxedResponder route appResponse n -> Method -> LenPath n -> IxedRouter route 'Z
+singletonIxedRouterHelper respBody responder method path =
+  let r = IxedRouter HM.empty Nothing
+            ( case respBody of
+                ResponseBodyClear _ -> HM.singleton (encodeMethod method) [responder]
+                ResponseBodyRaw _ -> HM.empty
+            ) 
+            ( case respBody of
+                ResponseBodyClear _ -> HM.empty
+                ResponseBodyRaw _ -> HM.singleton (encodeMethod method) [responder]
+            ) 
    in singletonIxedRouterGo r path
 
 singletonIxedRouterGo ::
   IxedRouter route n -> LenPath n -> IxedRouter route 'Z
 singletonIxedRouterGo r lp = case lp of
   LenPathNil -> r
-  LenPathCapture lpNext -> singletonIxedRouterGo (IxedRouter HM.empty (Just r) HM.empty) lpNext
-  LenPathMatch s lpNext -> singletonIxedRouterGo (IxedRouter (HM.singleton s r) Nothing HM.empty) lpNext
+  LenPathCapture lpNext -> singletonIxedRouterGo (IxedRouter HM.empty (Just r) HM.empty HM.empty) lpNext
+  LenPathMatch s lpNext -> singletonIxedRouterGo (IxedRouter (HM.singleton s r) Nothing HM.empty HM.empty) lpNext
 
 unionIxedRouter :: IxedRouter route n -> IxedRouter route n -> IxedRouter route n
 unionIxedRouter = go
   where
   go :: forall route n. IxedRouter route n -> IxedRouter route n -> IxedRouter route n
-  go (IxedRouter matchesA captureA respsA) (IxedRouter matchesB captureB respsB) =
+  go (IxedRouter matchesA captureA respsA rawRespsA) (IxedRouter matchesB captureB respsB rawRespsB) =
     IxedRouter
       (HM.unionWith go matchesA matchesB)
       (unionMaybeWith go captureA captureB)
       (HM.unionWith (++) respsA respsB)
+      (HM.unionWith (++) rawRespsA rawRespsB)
 
 unionMaybeWith :: (a -> a -> a) -> Maybe a -> Maybe a -> Maybe a
 unionMaybeWith f x y = case x of
@@ -873,25 +903,26 @@ prettyIxedRouter ::
      Int -- ^ Indentation
   -> (Maybe String, IxedRouter route n)
   -> [String]
-prettyIxedRouter indent (mnode,IxedRouter matches cap responders) =
+prettyIxedRouter indent (mnode,IxedRouter matches cap responders rawResponders) =
   let spaces = L.replicate indent ' '
       nextIndent = if isJust mnode then indent + 2 else indent
       children1 = map (first (Just . ('/' : ) . T.unpack)) (HM.toList matches)
       children2 = maybe [] (\x -> [(Just "/:capture",x)]) cap
+      combinedResponders = HM.unionWith (++) ((fmap.fmap) (const ()) responders) ((fmap.fmap) (const ()) rawResponders)
    in concat
         [ case mnode of
-            Nothing -> if length responders > 0
-              then ["/ " ++ showRespondersList responders]
+            Nothing -> if length combinedResponders > 0
+              then ["/ " ++ showRespondersList combinedResponders]
               else []
             Just _ -> []
         , maybe [] (\x -> [x]) $ flip fmap mnode $ \node -> spaces
             ++ node
-            ++ (if length responders > 0 then " " ++ showRespondersList responders else "")
+            ++ (if length combinedResponders > 0 then " " ++ showRespondersList combinedResponders else "")
         , prettyIxedRouter nextIndent =<< children1
         , prettyIxedRouter nextIndent =<< children2
         ]
 
-showRespondersList :: HashMap T.Text [a] -> String
+showRespondersList :: HashMap T.Text [()] -> String
 showRespondersList = id
   . (\x -> "[" ++ x ++ "]")
   . L.intercalate ","
