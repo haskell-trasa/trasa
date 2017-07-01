@@ -58,6 +58,10 @@ unitTests = testGroup "Unit Tests"
       $ parseUrl "/hello" @?= Right (conceal (prepare HelloR))
   , testCase "parse addition route"
       $ parseUrl "/add/6/3" @?= Right (conceal (prepare AdditionR 6 3 Nothing))
+  , testCase "parse raw route"
+      $ parseUrl "/raw/1" @?= Right (conceal (prepare RawR 1))
+  , testCase "parse raw route with leftovers"
+      $ parseUrl "/raw/2/foo/bar" @?= Right (conceal (prepare RawR 2))
   ]
 
 parseUrl :: T.Text -> Either TrasaErr (Concealed Route)
@@ -71,6 +75,7 @@ data Route :: [Type] -> [Param] -> Bodiedness -> Clarity -> Type where
   LeftPadR :: Route '[Int] '[] (Body String) (Clear String)
   TrickyOneR :: Route '[Int] '[] Bodyless (Clear String)
   TrickyTwoR :: Route '[Int,Int] '[] Bodyless (Clear String)
+  RawR :: Route '[Int] '[] Bodyless (Raw ())
 
 instance EnumerableRoute Route where
   enumerateRoutes =
@@ -81,6 +86,7 @@ instance EnumerableRoute Route where
     , Constructed TrickyOneR
     , Constructed TrickyTwoR
     , Constructed EmptyR
+    , Constructed RawR
     ]
 
 instance HasMeta Route where
@@ -118,6 +124,10 @@ instance HasMeta Route where
       (capture int ./ capture int ./ match "two" ./ end)
       qend
       bodyless (resp bodyString) M.get
+    RawR -> Meta
+      (match "raw" ./ capture int ./ end)
+      qend
+      bodyless (raw ()) M.get
 
 int :: CaptureCodec Int
 int = CaptureCodec (T.pack . show) (readMaybe . T.unpack)
@@ -161,6 +171,7 @@ instance Eq (Concealed Route) where
     (TrickyTwoR,TrickyTwoR) -> ps1 == ps2 && qs1 == qs2 && rq1 == rq2
     (HelloR,HelloR) -> ps1 == ps2 && qs1 == qs2 && rq1 == rq2
     (EmptyR,EmptyR) -> ps1 == ps2 && qs1 == qs2 && rq1 == rq2
+    (RawR,RawR) -> ps1 == ps2 && qs1 == qs2 && rq1 == rq2
 
 instance Arbitrary (Concealed Route) where
   arbitrary = oneof
@@ -171,6 +182,7 @@ instance Arbitrary (Concealed Route) where
     , Concealed TrickyTwoR <$> arbitrary <*> arbitrary <*> arbitrary
     , Concealed HelloR <$> arbitrary <*> arbitrary <*> arbitrary
     , Concealed EmptyR <$> arbitrary <*> arbitrary <*> arbitrary
+    , Concealed RawR <$> arbitrary <*> arbitrary <*> arbitrary
     ]
 
 instance Show (Concealed Route) where
