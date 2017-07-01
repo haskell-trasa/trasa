@@ -21,9 +21,7 @@ import Data.Aeson
   ,object,withObject,(.:),(.=))
 import Net.Types (IPv4)
 import qualified Net.IPv4.String as IPv4
-import Control.Exception (catch,SomeException)
 import System.Exit (exitFailure)
-import qualified Network.HTTP.Types.Status as N
 import qualified Network.HTTP.Client as N
 import Trasa.Core
 import Trasa.Core.Implicit
@@ -57,11 +55,11 @@ int = showReadCaptureCodec
 bodyUnit :: BodyCodec ()
 bodyUnit = BodyCodec (pure "text/html") (const "") (const (Right ()))
 
-data Route :: [Type] -> [Param] -> Bodiedness -> Type -> Type where
-  RouteHome :: Route '[] '[] Bodyless ()
-  RouteIp :: Route '[] '[] Bodyless Ip
-  RouteStatus :: Route '[Int] '[] Bodyless ()
-  RouteQuery :: Route '[] '[Optional Int] Bodyless Args
+data Route :: [Type] -> [Param] -> Bodiedness -> Clarity -> Type where
+  RouteHome :: Route '[] '[] Bodyless (Clear ())
+  RouteIp :: Route '[] '[] Bodyless (Clear Ip)
+  RouteStatus :: Route '[Int] '[] Bodyless (Clear ())
+  RouteQuery :: Route '[] '[Optional Int] Bodyless (Clear Args)
 
 instance HasMeta Route where
   type CaptureStrategy Route = CaptureCodec
@@ -75,7 +73,7 @@ instance HasMeta Route where
     RouteStatus -> Meta (match "status" ./ capture int ./ end) qend bodyless (resp bodyUnit) M.get
     RouteQuery -> Meta (match "anything" ./ end) (optional "int" int .& qend) bodyless (resp bodyAeson) M.get
 
-shouldRight :: Show resp => Config -> Prepared Route resp -> IO ()
+shouldRight :: Show resp => Config -> Prepared Route (Clear resp) -> IO ()
 shouldRight conf route = do
   putStr $ show (link route) ++ ": "
   client conf route >>= \case
@@ -88,13 +86,7 @@ main :: IO ()
 main = do
   manager <- N.newManager N.defaultManagerSettings
   let conf = Config (Authority Http "httpbin.org" Nothing) mempty manager
-  res <- catch (client conf (prepare RouteHome)) $ \(_ :: SomeException) -> return (Left (status N.status400))
-  case res of
-    Left err  -> do
-      putStrLn "Could not connect to httpbin.org, not running test suite"
-      putStrLn ("Could not connect because: " ++ show err)
-    Right _ -> do
-      putStrLn "Connected to httpbin.org, actually testing routes now..."
-      shouldRight conf (prepare RouteIp)
-      shouldRight conf (prepare RouteStatus 200)
-      shouldRight conf (prepare RouteQuery (Just 1))
+  shouldRight conf (prepare RouteHome)
+  shouldRight conf (prepare RouteIp)
+  shouldRight conf (prepare RouteStatus 200)
+  shouldRight conf (prepare RouteQuery (Just 1))

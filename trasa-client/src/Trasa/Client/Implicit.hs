@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilies #-}
 module Trasa.Client.Implicit where
 
@@ -16,7 +17,7 @@ client
      , HasBodyDecoding responseBodyStrat
      )
   => Config
-  -> Prepared route response
+  -> Prepared route (Clear response)
   -> IO (Either TrasaErr response)
 client = clientWith (transformMeta . meta)
   where transformMeta = mapMeta captureEncoding captureEncoding (mapMany bodyEncoding) (mapMany bodyDecoding)

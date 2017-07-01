@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
-{-# OPTIONS_GHC -Wall -Werror #-}
+{-# LANGUAGE DataKinds #-}
+{-# OPTIONS_GHC -Wall -Werror -Wno-unticked-promoted-constructors #-}
 module Trasa.Client
   (
   -- * Types
@@ -91,7 +92,7 @@ clientWith
   :: forall route response
   .  (forall caps qrys req resp. route caps qrys req resp -> MetaClient caps qrys req resp)
   -> Config
-  -> Prepared route response
+  -> Prepared route (Clear response)
   -- ^ Which endpoint to request
   -> IO (Either TrasaErr response)
 clientWith toMeta config =
