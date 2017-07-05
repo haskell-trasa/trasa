@@ -193,9 +193,9 @@ mapRequestBody :: (forall x. rqf x -> rqf' x) -> RequestBody rqf request -> Requ
 mapRequestBody _ RequestBodyAbsent = RequestBodyAbsent
 mapRequestBody f (RequestBodyPresent reqBod) = RequestBodyPresent (f reqBod)
 
-data Clarity = forall a. Clear a | forall a. Raw a
+data Clarity (r :: Type) = forall a. Clear a | Raw r
 
-data ResponseBody :: (Type -> Type) -> Clarity -> Type where
+data ResponseBody :: (Type -> Type) -> Clarity r -> Type where
   ResponseBodyClear :: !(f a) -> ResponseBody f (Clear a)
   ResponseBodyRaw :: !r -> ResponseBody f (Raw r)
 
@@ -676,7 +676,7 @@ handler = go
 -- | A route with all types hidden: the captures, the request body,
 --   and the response body. This is needed so that users can
 --   enumerate over all the routes.
-data Constructed :: ([Type] -> [Param] -> Bodiedness -> Clarity -> Type) -> Type where
+data Constructed :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> Type where
   Constructed :: !(route captures querys request (appResponse (resp :: Type))) -> Constructed route
 -- I dont really like the name Constructed, but I don't want to call it
 -- Some or Any since these get used a lot and a conflict would be likely.
@@ -688,15 +688,15 @@ mapConstructed ::
   -> Constructed route
 mapConstructed f (Constructed sub) = Constructed (f sub)
 
-data Pathed :: ([Type] -> [Param] -> Bodiedness -> Clarity -> Type) -> Type  where
+data Pathed :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> Type  where
   Pathed :: !(route captures querys request response) -> !(Rec Identity captures) -> ExtraPath response -> Pathed route
 
-data ExtraPath :: Clarity -> Type where
+data ExtraPath :: Clarity r -> Type where
   ExtraPathRaw :: forall (a :: Type). [T.Text] -> ExtraPath ('Raw a)
   ExtraPathClear :: forall (a :: Type). ExtraPath ('Clear a)
 
 -- | Includes the route, path, query parameters, and request body.
-data Prepared :: ([Type] -> [Param] -> Bodiedness -> Clarity -> Type) -> Clarity -> Type where
+data Prepared :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> Clarity r -> Type where
   Prepared ::
        !(route captures querys request response)
     -> !(Rec Identity captures)
@@ -707,7 +707,7 @@ data Prepared :: ([Type] -> [Param] -> Bodiedness -> Clarity -> Type) -> Clarity
 -- | Only needed to implement 'parseWith'. Most users do not need this.
 --   If you need to create a route hierarchy to provide breadcrumbs,
 --   then you will need this.
-data Concealed :: ([Type] -> [Param] -> Bodiedness -> Clarity -> Type) -> Type where
+data Concealed :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> Type where
   Concealed ::
        !(route captures querys request response)
     -> !(Rec Identity captures)
@@ -737,7 +737,7 @@ data Nat = S !Nat | Z
 
 newtype Router route = Router (IxedRouter route 'Z)
 
-data IxedRouter (f :: [Type] -> [Param] -> Bodiedness -> Clarity -> Type) (n :: Nat) where
+data IxedRouter (f :: [Type] -> [Param] -> Bodiedness -> Clarity r -> Type) (n :: Nat) where
   IxedRouter ::
        !(HashMap T.Text (IxedRouter route n))
        -- All possible static matches
@@ -764,8 +764,8 @@ instance Monoid (IxedRouter route n) where
   mempty = IxedRouter HM.empty Nothing HM.empty HM.empty
   mappend = unionIxedRouter
 
-data IxedResponder :: ([Type] -> [Param] -> Bodiedness -> Clarity -> Type) -> (Type -> Clarity) -> Nat -> Type where
-  IxedResponder :: forall (appResponse :: Type -> Clarity) (resp :: Type) route captures query request n.
+data IxedResponder :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> (Type -> Clarity r) -> Nat -> Type where
+  IxedResponder :: forall (appResponse :: Type -> Clarity r) (resp :: Type) route captures query request n.
        !(route captures query request (appResponse resp))
     -> !(IxedRec CaptureDecoding n captures)
     -> IxedResponder route appResponse n
@@ -838,8 +838,13 @@ reverseLenPathMatch = go LenPathNil
   go acc (LenPathMatch s pnext) = go (LenPathMatch s acc) pnext
   go acc (LenPathCapture (pnext :: LenPath m2)) = coerce (plusRightSucc @n @m2) (go (LenPathCapture acc) pnext)
 
-singletonIxedRouter :: forall (appResponse :: Type -> Clarity) (resp :: Type) (route :: ([Type] -> [Param] -> Bodiedness -> Clarity -> Type)) rpf captures request querys.
-     route captures querys request (appResponse resp)
+singletonIxedRouter
+  :: forall
+     (appResponse :: Type -> Clarity r)
+     (resp :: Type)
+     (route :: [Type] -> [Param] -> Bodiedness -> Clarity r -> Type)
+     rpf captures request querys
+   . route captures querys request (appResponse resp)
   -> Method
   -> Path CaptureDecoding captures
   -> ResponseBody rpf (appResponse resp)
@@ -851,8 +856,18 @@ singletonIxedRouter route method capDecs respBody =
         lenPath = reverseLenPathMatch (ixedPathToLenPath ixedCapDecs)
      in singletonIxedRouterHelper respBody responder method lenPath
 
-singletonIxedRouterHelper :: forall (appResponse :: Type -> Clarity) (resp :: Type) (n :: Nat) (route :: ([Type] -> [Param] -> Bodiedness -> Clarity -> Type)) rpf.
-  ResponseBody rpf (appResponse resp) -> IxedResponder route appResponse n -> Method -> LenPath n -> IxedRouter route 'Z
+singletonIxedRouterHelper
+  :: forall
+     (appResponse :: Type -> Clarity r)
+     (resp :: Type)
+     (n :: Nat)
+     (route :: [Type] -> [Param] -> Bodiedness -> Clarity r -> Type)
+     rpf
+   . ResponseBody rpf (appResponse resp)
+  -> IxedResponder route appResponse n
+  -> Method
+  -> LenPath n
+  -> IxedRouter route 'Z
 singletonIxedRouterHelper respBody responder method path =
   let r = IxedRouter HM.empty Nothing
             ( case respBody of
