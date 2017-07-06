@@ -24,6 +24,7 @@ import Test.Tasty.QuickCheck as QC
 import Test.Tasty.HUnit
 import Data.Functor.Identity
 import Data.Monoid
+import Data.Void
 
 import Test.DocTest (doctest)
 
@@ -67,7 +68,7 @@ unitTests = testGroup "Unit Tests"
 parseUrl :: T.Text -> Either TrasaErr (Concealed Route)
 parseUrl url = parse "GET" (decodeUrl url) Nothing
 
-data Route :: [Type] -> [Param] -> Bodiedness -> Clarity -> Type where
+data Route :: [Type] -> [Param] -> Bodiedness -> Clarity () -> Type where
   EmptyR :: Route '[] '[] Bodyless (Clear Int)
   HelloR :: Route '[] '[] Bodyless (Clear Int)
   AdditionR :: Route '[Int,Int] '[Optional Int] Bodyless (Clear Int)
@@ -75,7 +76,7 @@ data Route :: [Type] -> [Param] -> Bodiedness -> Clarity -> Type where
   LeftPadR :: Route '[Int] '[] (Body String) (Clear String)
   TrickyOneR :: Route '[Int] '[] Bodyless (Clear String)
   TrickyTwoR :: Route '[Int,Int] '[] Bodyless (Clear String)
-  RawR :: Route '[Int] '[] Bodyless (Raw ())
+  RawR :: Route '[Int] '[] Bodyless Raw
 
 instance EnumerableRoute Route where
   enumerateRoutes =

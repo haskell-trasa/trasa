@@ -11,6 +11,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TypeInType #-}
 
 {-# OPTIONS_GHC -Wall -Werror -Wno-unticked-promoted-constructors #-}
 module Trasa.Core
@@ -193,16 +194,16 @@ mapRequestBody :: (forall x. rqf x -> rqf' x) -> RequestBody rqf request -> Requ
 mapRequestBody _ RequestBodyAbsent = RequestBodyAbsent
 mapRequestBody f (RequestBodyPresent reqBod) = RequestBodyPresent (f reqBod)
 
-data Clarity (r :: Type) = forall a. Clear a | Raw r
+data Clarity (r :: Type) = forall a. Clear a | Raw
 
 data ResponseBody :: (Type -> Type) -> Clarity r -> Type where
   ResponseBodyClear :: !(f a) -> ResponseBody f (Clear a)
-  ResponseBodyRaw :: !r -> ResponseBody f (Raw r)
+  ResponseBodyRaw :: !r -> ResponseBody f (Raw :: Clarity r)
 
 resp :: rpf resp -> ResponseBody rpf (Clear resp)
 resp = ResponseBodyClear
 
-raw :: a -> ResponseBody rpf (Raw a)
+raw :: a -> ResponseBody rpf (Raw :: Clarity a)
 raw = ResponseBodyRaw
 
 mapResponseBody :: (forall x. rpf x -> rpf' x) -> ResponseBody rpf request -> ResponseBody rpf' request
@@ -535,7 +536,7 @@ parsePathWith (Router r0) method pieces0 =
     let encMethod = encodeMethod method in
     case HM.lookup encMethod rawResponders of
       Just rawRespondersAtMethod -> mapMaybe
-        (\(IxedResponder route capDecs) -> 
+        (\(IxedRawResponder route capDecs) -> 
           fmap (\x -> Pathed route x (ExtraPathRaw ps)) (decodeCaptureVector capDecs captures)
         ) 
         rawRespondersAtMethod
@@ -543,7 +544,7 @@ parsePathWith (Router r0) method pieces0 =
         [] -> case HM.lookup encMethod responders of
           Nothing -> []
           Just respondersAtMethod ->
-            mapMaybe (\(IxedResponder route capDecs) ->
+            mapMaybe (\(IxedClearResponder route capDecs) ->
               fmap (\x -> (Pathed route x ExtraPathClear)) (decodeCaptureVector capDecs captures)
             ) respondersAtMethod
         p : psNext ->
@@ -677,7 +678,7 @@ handler = go
 --   and the response body. This is needed so that users can
 --   enumerate over all the routes.
 data Constructed :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> Type where
-  Constructed :: !(route captures querys request (appResponse (resp :: Type))) -> Constructed route
+  Constructed :: !(route captures querys request response) -> Constructed route
 -- I dont really like the name Constructed, but I don't want to call it
 -- Some or Any since these get used a lot and a conflict would be likely.
 -- Think, think, think.
@@ -692,7 +693,7 @@ data Pathed :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> Type  w
   Pathed :: !(route captures querys request response) -> !(Rec Identity captures) -> ExtraPath response -> Pathed route
 
 data ExtraPath :: Clarity r -> Type where
-  ExtraPathRaw :: forall (a :: Type). [T.Text] -> ExtraPath ('Raw a)
+  ExtraPathRaw :: [T.Text] -> ExtraPath 'Raw
   ExtraPathClear :: forall (a :: Type). ExtraPath ('Clear a)
 
 -- | Includes the route, path, query parameters, and request body.
@@ -738,16 +739,16 @@ data Nat = S !Nat | Z
 newtype Router route = Router (IxedRouter route 'Z)
 
 data IxedRouter (f :: [Type] -> [Param] -> Bodiedness -> Clarity r -> Type) (n :: Nat) where
-  IxedRouter ::
+  IxedRouter :: 
        !(HashMap T.Text (IxedRouter route n))
        -- All possible static matches
     -> !(Maybe (IxedRouter route ('S n)))
        -- A capture
-    -> !(HashMap T.Text [IxedResponder route Clear n])
+    -> !(HashMap T.Text [IxedClearResponder route n])
        -- This is a map from HTTP request methods to responders.
        -- There should be either zero or one elements in each 
        -- list, more than one means that there are trivially overlapped routes.
-    -> !(HashMap T.Text [IxedResponder route Raw n])
+    -> !(HashMap T.Text [IxedRawResponder route n])
        -- Request methods that result in a raw application.
        -- This is usually empty.
     -> IxedRouter route n
@@ -764,11 +765,17 @@ instance Monoid (IxedRouter route n) where
   mempty = IxedRouter HM.empty Nothing HM.empty HM.empty
   mappend = unionIxedRouter
 
-data IxedResponder :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> (Type -> Clarity r) -> Nat -> Type where
-  IxedResponder :: forall (appResponse :: Type -> Clarity r) (resp :: Type) route captures query request n.
-       !(route captures query request (appResponse resp))
+data IxedClearResponder :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> Nat -> Type where
+  IxedClearResponder :: forall route captures query request n (a :: Type).
+       !(route captures query request (Clear a))
     -> !(IxedRec CaptureDecoding n captures)
-    -> IxedResponder route appResponse n
+    -> IxedClearResponder route n
+
+data IxedRawResponder :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> Nat -> Type where
+  IxedRawResponder :: forall route captures query request n.
+       !(route captures query request Raw)
+    -> !(IxedRec CaptureDecoding n captures)
+    -> IxedRawResponder route n
 
 data IxedRec :: (k -> Type) -> Nat -> [k] -> Type where
   IxedRecNil :: IxedRec f 'Z '[]
@@ -840,44 +847,43 @@ reverseLenPathMatch = go LenPathNil
 
 singletonIxedRouter
   :: forall
-     (appResponse :: Type -> Clarity r)
-     (resp :: Type)
      (route :: [Type] -> [Param] -> Bodiedness -> Clarity r -> Type)
-     rpf captures request querys
-   . route captures querys request (appResponse resp)
+     rpf captures request querys (response :: Clarity r)
+   . route captures querys request response
   -> Method
   -> Path CaptureDecoding captures
-  -> ResponseBody rpf (appResponse resp)
+  -> ResponseBody rpf response
   -> IxedRouter route 'Z
 singletonIxedRouter route method capDecs respBody =
     let ixedCapDecs = pathToIxedPath capDecs
         ixedCapDecsRec = ixedPathToIxedRec ixedCapDecs
-        responder = IxedResponder route ixedCapDecsRec
         lenPath = reverseLenPathMatch (ixedPathToLenPath ixedCapDecs)
-     in singletonIxedRouterHelper respBody responder method lenPath
+     in case respBody of
+          ResponseBodyClear _ -> singletonClearIxedRouterHelper (IxedClearResponder route ixedCapDecsRec) method lenPath
+          ResponseBodyRaw _ -> singletonRawIxedRouterHelper (IxedRawResponder route ixedCapDecsRec) method lenPath
 
-singletonIxedRouterHelper
+singletonRawIxedRouterHelper
   :: forall
-     (appResponse :: Type -> Clarity r)
-     (resp :: Type)
      (n :: Nat)
      (route :: [Type] -> [Param] -> Bodiedness -> Clarity r -> Type)
-     rpf
-   . ResponseBody rpf (appResponse resp)
-  -> IxedResponder route appResponse n
+   . IxedRawResponder route n
   -> Method
   -> LenPath n
   -> IxedRouter route 'Z
-singletonIxedRouterHelper respBody responder method path =
-  let r = IxedRouter HM.empty Nothing
-            ( case respBody of
-                ResponseBodyClear _ -> HM.singleton (encodeMethod method) [responder]
-                ResponseBodyRaw _ -> HM.empty
-            ) 
-            ( case respBody of
-                ResponseBodyClear _ -> HM.empty
-                ResponseBodyRaw _ -> HM.singleton (encodeMethod method) [responder]
-            ) 
+singletonRawIxedRouterHelper responder method path =
+  let r = IxedRouter HM.empty Nothing HM.empty (HM.singleton (encodeMethod method) [responder])
+   in singletonIxedRouterGo r path
+
+singletonClearIxedRouterHelper
+  :: forall
+     (n :: Nat)
+     (route :: [Type] -> [Param] -> Bodiedness -> Clarity r -> Type)
+   . IxedClearResponder route n
+  -> Method
+  -> LenPath n
+  -> IxedRouter route 'Z
+singletonClearIxedRouterHelper responder method path =
+  let r = IxedRouter HM.empty Nothing (HM.singleton (encodeMethod method) [responder]) HM.empty
    in singletonIxedRouterGo r path
 
 singletonIxedRouterGo ::

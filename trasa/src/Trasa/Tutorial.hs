@@ -15,6 +15,7 @@ import qualified Trasa.Method as M
 import Data.Vinyl (Rec)
 import Data.Kind (Type)
 import Data.Text (Text)
+import Data.Void (Void)
 
 -- $setup
 -- >>> :set -XDataKinds
@@ -31,7 +32,7 @@ import Data.Text (Text)
 -- >>> :{
 -- data Counter = Red | Green | Blue
 --   deriving (Show,Read)
--- data Route :: [Type] -> [Param] -> Bodiedness -> Clarity -> Type where
+-- data Route :: [Type] -> [Param] -> Bodiedness -> Clarity Void -> Type where
 --   AssignR :: Route '[Counter,Int] '[] 'Bodyless ('Clear ())
 --   IncrementR :: Route '[Counter] '[] 'Bodyless ('Clear Int)
 --   QueryR :: Route '[Counter] '[]Bodyless ('Clear Int)
