@@ -2,6 +2,8 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE KindSignatures #-}
+
 {-# OPTIONS_GHC -Wall -Werror -Wno-unticked-promoted-constructors #-}
 module Trasa.Client
   (
@@ -15,6 +17,7 @@ module Trasa.Client
 
 import Data.Word (Word16)
 import Data.Semigroup ((<>))
+import Data.Kind (Type)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
@@ -89,10 +92,10 @@ data Config = Config
   }
 
 clientWith
-  :: forall route response
-  .  (forall caps qrys req resp. route caps qrys req resp -> MetaClient caps qrys req resp)
+  :: forall (k :: Type) route response
+  .  (forall caps qrys req resp. route caps qrys req (Clear resp :: Clarity k) -> MetaClient caps qrys req (Clear resp :: Clarity k))
   -> Config
-  -> Prepared route (Clear response)
+  -> Prepared route (Clear response :: Clarity k)
   -- ^ Which endpoint to request
   -> IO (Either TrasaErr response)
 clientWith toMeta config =

@@ -382,7 +382,7 @@ payloadWith toMeta p@(Prepared route _ _ reqBody) =
 -- Only useful to implement packages like 'trasa-client'
 requestWith
   :: Functor m
-  => (forall caps qrys req resp. route caps qrys req resp -> MetaClient caps qrys req resp)
+  => (forall caps qrys req (resp :: Type). route caps qrys req (Clear resp) -> MetaClient caps qrys req (Clear resp))
   -> (Method -> Url -> Maybe Content -> NonEmpty N.MediaType -> m (Either TrasaErr Content))
   -- ^ method, url, content, accepts -> response
   -> Prepared route (Clear response)

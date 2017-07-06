@@ -2,8 +2,10 @@ resolver: lts-8.12
 packages:
 - './trasa'
 - './trasa-server'
+- './trasa-client'
 - './example/common'
 - './example/backend'
-extra-deps: []
+extra-deps:
+- 'ip-0.9'
 flags: {}
 extra-package-dbs: []

@@ -28,6 +28,7 @@ import Trasa.Core.Implicit
 import qualified Trasa.Method as M
 import Trasa.Client
 import Trasa.Client.Implicit
+import Data.Void
 
 data Ip = Ip
   { origin :: IPv4
@@ -55,7 +56,7 @@ int = showReadCaptureCodec
 bodyUnit :: BodyCodec ()
 bodyUnit = BodyCodec (pure "text/html") (const "") (const (Right ()))
 
-data Route :: [Type] -> [Param] -> Bodiedness -> Clarity -> Type where
+data Route :: [Type] -> [Param] -> Bodiedness -> Clarity Void -> Type where
   RouteHome :: Route '[] '[] Bodyless (Clear ())
   RouteIp :: Route '[] '[] Bodyless (Clear Ip)
   RouteStatus :: Route '[Int] '[] Bodyless (Clear ())
