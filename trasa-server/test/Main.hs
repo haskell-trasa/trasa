@@ -18,6 +18,7 @@ import Data.Functor.Identity
 import Data.Kind (Type)
 import Text.Read (readMaybe)
 import Network.Wai.Handler.Warp (withApplication)
+import qualified Network.Wai as WAI
 import qualified Data.Text as T
 import qualified Data.ByteString.Lazy.Char8 as LBSC
 import qualified Network.HTTP.Client as HC
@@ -35,6 +36,7 @@ main = do
       { HC.requestHeaders = [("Accept","text/plain"),("ContentType","text/plain")]
       }
     return ()
+  putStrLn "\nFinishing trasa server test suite"
 
 attempt :: HC.Manager -> String -> (HC.Request -> HC.Request) -> IO ()
 attempt mngr url modify = do
@@ -43,19 +45,24 @@ attempt mngr url modify = do
   _ <- HC.httpLbs req' mngr
   return ()
 
-handle :: Route caps qrys req resp -> Rec Identity caps -> Rec Parameter qrys -> RequestBody Identity req -> TrasaT IO resp
+handle :: 
+     Route caps qrys req resp 
+  -> Rec Identity caps
+  -> Rec Parameter qrys
+  -> RequestBody Identity req
+  -> TrasaT IO (Clarify resp)
 handle r = case r of
   EmptyR -> \_ _ _ -> return (55 :: Int)
   HelloR -> \_ _ _ -> return (67 :: Int)
 
-data Route :: [Type] -> [Param] -> Bodiedness -> Type -> Type where
-  EmptyR :: Route '[] '[] Bodyless Int
-  HelloR :: Route '[] '[] Bodyless Int
-  AdditionR :: Route '[Int,Int] '[Optional Int] Bodyless Int
-  IdentityR :: Route '[String] '[] Bodyless String
-  LeftPadR :: Route '[Int] '[] (Body String) String
-  TrickyOneR :: Route '[Int] '[] Bodyless String
-  TrickyTwoR :: Route '[Int,Int] '[] Bodyless String
+data Route :: [Type] -> [Param] -> Bodiedness -> Clarity WAI.Response -> Type where
+  EmptyR :: Route '[] '[] Bodyless (Clear Int)
+  HelloR :: Route '[] '[] Bodyless (Clear Int)
+  AdditionR :: Route '[Int,Int] '[Optional Int] Bodyless (Clear Int)
+  IdentityR :: Route '[String] '[] Bodyless (Clear String)
+  LeftPadR :: Route '[Int] '[] (Body String) (Clear String)
+  TrickyOneR :: Route '[Int] '[] Bodyless (Clear String)
+  TrickyTwoR :: Route '[Int,Int] '[] Bodyless (Clear String)
 
 instance EnumerableRoute Route where
   enumerateRoutes =
@@ -122,5 +129,6 @@ note e Nothing = Left e
 note _ (Just x) = Right x
 
 bodyInt :: BodyCodec Int
-bodyInt = BodyCodec (pure "text/plain") (LBSC.pack . show)
-                    (note "Could not decode int" . readMaybe . LBSC.unpack)
+bodyInt = BodyCodec
+  (pure "text/plain") (LBSC.pack . show)
+  (note "Could not decode int" . readMaybe . LBSC.unpack)
