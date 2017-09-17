@@ -25,6 +25,7 @@ module Trasa.Core
   -- ** Existential
   , Prepared(..)
   , Concealed(..)
+  , Cleared(..)
   , Constructed(..)
   , conceal
   , concealedToPrepared
@@ -49,6 +50,7 @@ module Trasa.Core
   , prepareWith
   , linkWith
   , parseWith
+  , parseClearedWith
   , payloadWith
   , requestWith
   , routerWith
@@ -132,6 +134,7 @@ module Trasa.Core
   , handler
   -- * Helpers
   , prettyRouter
+  , weakenedLinkWith
   ) where
 
 import Data.Kind (Type)
@@ -364,20 +367,31 @@ data Payload = Payload
 
 -- | Only useful for library authors
 payloadWith
-  :: forall route response
-  .  (forall caps qrys req resp. route caps qrys req resp -> MetaClient caps qrys req resp)
-  -> Prepared route (Clear response)
+  :: forall k (route :: [Type] -> [Param] -> Bodiedness -> Clarity k -> Type) (response :: Type)
+  .  (forall caps qrys req (resp :: Type). route caps qrys req (Clear resp :: Clarity k) -> MetaClient caps qrys req (Clear resp :: Clarity k))
+  -> Prepared route (Clear response :: Clarity k)
   -- ^ The route to be payload encoded
   -> Payload
 payloadWith toMeta p@(Prepared route _ _ reqBody) =
   Payload url content accepts
   where
-    url = linkWith toMeta p
+    url = weakenedLinkWith toMeta p
     m = toMeta route
     content = encodeRequestBody (metaRequestBody m) reqBody
     accepts = case metaResponseBody m of
       ResponseBodyClear (Many decs) -> decs >>= \case
         BodyDecoding dec _ -> dec
+
+-- | The is uncool that this is exported, but we need a better way
+--   to deal with calling linkWith over a restricted subset of routes.
+weakenedLinkWith
+  :: forall k (route :: [Type] -> [Param] -> Bodiedness -> Clarity k -> Type) (response :: Type) reqCodec respCodec
+  .  (forall caps qrys req (resp :: Type). route caps qrys req (Clear resp :: Clarity k)  -> Meta CaptureEncoding CaptureEncoding reqCodec respCodec caps qrys req (Clear resp :: Clarity k))
+  -> Prepared route (Clear response)
+  -- ^ The route to encode
+  -> Url
+weakenedLinkWith toMeta (Prepared route captures querys _) =
+  encodePieces (metaPath (toMeta route)) (metaQuery (toMeta route)) captures querys
 
 -- Only useful to implement packages like 'trasa-client'
 requestWith
@@ -511,52 +525,76 @@ parseWith toMeta madeRouter method (Url encodedPath encodedQuery) mcontent = do
   -- Currently, we are silently discarding path pieces for raw
   -- routes. Reconsider this at some future time because it is not
   -- actually that hard to support this.
-  Pathed route captures _ <- maybe (Left (status N.status404)) Right
-    $ parsePathWith madeRouter method encodedPath
+  Pathed _ route captures _ <- maybe (Left (status N.status404)) Right
+    $ parsePathWith madeRouter method encodedPath SingRestrictionAny
   let m = toMeta route
   querys <- parseQueryWith (metaQuery m) encodedQuery
   reqBody <- decodeRequestBody (metaRequestBody m) mcontent
   return (Concealed route captures querys reqBody)
 
+parseClearedWith
+  :: forall route capCodec respCodec
+  .  (forall caps qrys req resp. route caps qrys req resp -> Meta capCodec CaptureDecoding (Many BodyDecoding) respCodec caps qrys req resp)
+  -> Router route -- ^ Router
+  -> Method -- ^ Request Method
+  -> Url -- ^ Everything after the authority
+  -> Maybe Content -- ^ Request content type and body
+  -> Either TrasaErr (Cleared route)
+parseClearedWith toMeta madeRouter method (Url encodedPath encodedQuery) mcontent = do
+  Pathed s route captures _ <- maybe (Left (status N.status404)) Right
+    $ parsePathWith madeRouter method encodedPath SingRestrictionClear
+  let m = toMeta route
+  querys <- parseQueryWith (metaQuery m) encodedQuery
+  reqBody <- decodeRequestBody (metaRequestBody m) mcontent
+  case s of
+    RestrictedClarityClear -> return (Cleared route captures querys reqBody)
+
+
 -- | Parses only the path.
-parsePathWith :: forall route.
+parsePathWith :: forall route restriction.
      Router route
   -> Method -- ^ Method
   -> [T.Text] -- ^ Path Pieces
-  -> Maybe (Pathed route)
-parsePathWith (Router r0) method pieces0 =
+  -> SingRestriction restriction
+  -> Maybe (Pathed route restriction)
+parsePathWith (Router r0) method pieces0 sing =
   listToMaybe (go VecNil pieces0 r0)
   where
   go :: forall n.
         Vec n T.Text -- captures being accumulated
      -> [T.Text] -- remaining pieces
      -> IxedRouter route n -- router fragment
-     -> [Pathed route]
+     -> [Pathed route restriction]
   go captures ps (IxedRouter matches mcapture responders rawResponders) =
-    let encMethod = encodeMethod method in
-    case HM.lookup encMethod rawResponders of
-      Just rawRespondersAtMethod -> mapMaybe
-        (\(IxedRawResponder route capDecs) -> 
-          fmap (\x -> Pathed route x (ExtraPathRaw ps)) (decodeCaptureVector capDecs captures)
-        ) 
-        rawRespondersAtMethod
-      Nothing -> case ps of
-        [] -> case HM.lookup encMethod responders of
+    let encMethod = encodeMethod method
+        rawRes = case HM.lookup encMethod rawResponders of
+          Just rawRespondersAtMethod -> mapMaybe
+            (\(IxedRawResponder route capDecs) -> 
+              case sing of
+                SingRestrictionAny -> 
+                  fmap (\x -> Pathed RestrictedClarityAny route x (ExtraPathRaw ps)) (decodeCaptureVector capDecs captures)
+                SingRestrictionClear -> Nothing
+            ) 
+            rawRespondersAtMethod
           Nothing -> []
-          Just respondersAtMethod ->
-            mapMaybe (\(IxedClearResponder route capDecs) ->
-              fmap (\x -> (Pathed route x ExtraPathClear)) (decodeCaptureVector capDecs captures)
-            ) respondersAtMethod
-        p : psNext ->
-          let res1 = maybe [] id $ fmap (go captures psNext) (HM.lookup p matches)
-              -- Since this uses snocVec to build up the captures,
-              -- this algorithm's complexity includes a term that is
-              -- O(n^2) in the number of captures. However, most routes
-              -- that I deal with have one or two captures. Occassionally,
-              -- I'll get one with four or five, but this happens
-              -- so infrequently that I'm not concerned about this.
-              res2 = maybe [] id $ fmap (go (snocVec p captures) psNext) mcapture
-           in res1 ++ res2
+        clearRes = case ps of
+          [] -> case HM.lookup encMethod responders of
+            Nothing -> []
+            Just respondersAtMethod ->
+              mapMaybe (\(IxedClearResponder route capDecs) ->
+                fmap (\x -> (Pathed (case sing of { SingRestrictionAny -> RestrictedClarityAny; SingRestrictionClear -> RestrictedClarityClear }) route x ExtraPathClear)) (decodeCaptureVector capDecs captures)
+              ) respondersAtMethod
+          p : psNext ->
+            let res1 = maybe [] id $ fmap (go captures psNext) (HM.lookup p matches)
+                -- Since this uses snocVec to build up the captures,
+                -- this algorithm's complexity includes a term that is
+                -- O(n^2) in the number of captures. However, most routes
+                -- that I deal with have one or two captures. Occassionally,
+                -- I'll get one with four or five, but this happens
+                -- so infrequently that I'm not concerned about this.
+                res2 = maybe [] id $ fmap (go (snocVec p captures) psNext) mcapture
+             in res1 ++ res2
+     in rawRes ++ clearRes
 
 parseQueryWith :: Rec (Query CaptureDecoding) querys -> QueryString -> Either TrasaErr (Rec Parameter querys)
 parseQueryWith decoding (QueryString querys) = rtraverse param decoding
@@ -689,8 +727,25 @@ mapConstructed ::
   -> Constructed route
 mapConstructed f (Constructed sub) = Constructed (f sub)
 
-data Pathed :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> Type  where
-  Pathed :: !(route captures querys request response) -> !(Rec Identity captures) -> ExtraPath response -> Pathed route
+data Restriction = RestrictionAny | RestrictionClear
+
+data SingRestriction :: Restriction -> Type where
+  SingRestrictionAny :: SingRestriction RestrictionAny
+  SingRestrictionClear :: SingRestriction RestrictionClear
+
+data RestrictedClarity :: Clarity k -> Restriction -> Type where
+  RestrictedClarityClear :: 
+    RestrictedClarity (Clear (a :: Type)) RestrictionClear
+  RestrictedClarityAny :: 
+    RestrictedClarity x RestrictionAny
+
+data Pathed :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> Restriction -> Type  where
+  Pathed ::
+       !(RestrictedClarity response restriction)
+    -> !(route captures querys request response)
+    -> !(Rec Identity captures)
+    -> ExtraPath response
+    -> Pathed route restriction
 
 data ExtraPath :: Clarity r -> Type where
   ExtraPathRaw :: [T.Text] -> ExtraPath 'Raw
@@ -715,6 +770,14 @@ data Concealed :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> Type
     -> !(Rec Parameter querys)
     -> !(RequestBody Identity request)
     -> Concealed route
+
+data Cleared :: ([Type] -> [Param] -> Bodiedness -> Clarity r -> Type) -> Type where
+  Cleared ::
+       !(route captures querys request (Clear (x :: Type)))
+    -> !(Rec Identity captures)
+    -> !(Rec Parameter querys)
+    -> !(RequestBody Identity request)
+    -> Cleared route
 
 -- | Conceal the response type.
 conceal :: Prepared route response -> Concealed route

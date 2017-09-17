@@ -8,7 +8,10 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# OPTIONS_GHC -Wall -Werror #-}
+{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE TypeInType #-}
+
+{-# OPTIONS_GHC -Wall -Werror -Wno-unticked-promoted-constructors #-}
 module Trasa.Reflex
   (
     MetaReflex
@@ -46,18 +49,18 @@ type family Arguments (caps :: [Type]) (qrys :: [Param]) (resp :: Type) (result 
   Arguments (cap:caps) qs resp result = cap -> Arguments caps qs resp result
 
 -- | "Trasa.Reflex.handler" is to "Trasa.Core.handler" as "Trasa.Reflex.Arguments" is to "Trasa.Core.Arguments"
-handler :: Rec Identity caps -> Rec Parameter qrys -> ResponseBody Identity resp -> Arguments caps qrys resp x -> x
+handler :: forall k caps qrys resp x. Rec Identity caps -> Rec Parameter qrys -> ResponseBody Identity (Clear resp :: Clarity k) -> Arguments caps qrys resp x -> x
 handler = go
   where
-    go :: Rec Identity caps -> Rec Parameter qrys -> ResponseBody Identity resp -> Arguments caps qrys resp x -> x
-    go RNil RNil (ResponseBody (Identity response)) f = f response
+    go :: forall caps' qrys' (resp' :: Type) x'. Rec Identity caps' -> Rec Parameter qrys' -> ResponseBody Identity (Clear resp' :: Clarity k) -> Arguments caps' qrys' resp' x' -> x'
+    go RNil RNil (ResponseBodyClear (Identity response)) f = f response
     go RNil (q :& qs) respBody f = go RNil qs respBody (f (demoteParameter q))
     go (Identity cap :& caps) qs respBody f = go caps qs respBody (f cap)
 
 -- | Used when you want to perform an action for any response type
 data ResponseHandler route a = forall resp. ResponseHandler
-  !(Prepared route resp)
-  !(ResponseBody (Many BodyDecoding) resp)
+  !(Prepared route (Clear resp))
+  !(ResponseBody (Many BodyDecoding) (Clear resp))
   !(resp -> a)
 
 data Pair a b = Pair !a !b
@@ -76,32 +79,34 @@ metaReflexToMetaClient = mapMeta id captureEncoding (mapMany bodyEncoding) id
 
 -- | Single request version of 'requestManyWith'
 requestWith
-  :: forall t m route response
+  :: forall t m k route (response :: Type)
   .  MonadWidget t m
-  => (forall caps qrys req resp. route caps qrys req resp -> MetaClient caps qrys req resp)
-  -> Event t (Prepared route response)
+  => (forall caps qrys req (resp :: Type). route caps qrys req (Clear resp :: Clarity k) -> MetaClient caps qrys req (Clear resp :: Clarity k))
+  -> Event t (Prepared route (Clear response :: Clarity k))
   -> m (Event t (Either TrasaErr response))
 requestWith toMeta prepared =
   coerceEvent <$> requestManyWith toMeta preparedId
-  where preparedId = coerceEvent prepared :: Event t (Identity (Prepared route response))
+  where preparedId = coerceEvent prepared :: Event t (Identity (Prepared route (Clear response :: Clarity k)))
 
 -- | Perform n requests and collect the results
 requestManyWith
-  :: forall t m f route response
+  :: forall t m k f route (response :: Type)
   .  (MonadWidget t m, Traversable f)
-  => (forall caps qrys req resp. route caps qrys req resp -> MetaClient caps qrys req resp)
-  -> Event t (f (Prepared route response))
+  => (forall caps qrys req (resp :: Type). route caps qrys req (Clear resp :: Clarity k) -> MetaClient caps qrys req (Clear resp :: Clarity k))
+  -> Event t (f (Prepared route (Clear response :: Clarity k)))
   -- ^ The routes to request
   -> m (Event t (f (Either TrasaErr response)))
 requestManyWith toMeta prepared =
   requestMultiWith toMeta (fmap toResponseHandler <$> prepared)
-  where toResponseHandler p@(Prepared route _ _ _) = ResponseHandler p (metaResponseBody (toMeta route)) id
+  where
+  toResponseHandler :: Prepared route (Clear response :: Clarity k) -> ResponseHandler route response
+  toResponseHandler p@(Prepared route _ _ _) = ResponseHandler p (metaResponseBody (toMeta route)) id
 
 -- | Internal function but exported because it subsumes the function of all the other functions in this package.
 -- | Very powerful function
-requestMultiWith :: forall t m f route a.
+requestMultiWith :: forall t m k f (route :: [Type] -> [Param] -> Bodiedness -> Clarity k -> Type) a.
   (MonadWidget t m, Traversable f)
-  => (forall caps qrys req resp. route caps qrys req resp -> MetaClient caps qrys req resp)
+  => (forall caps qrys req (resp :: Type). route caps qrys req (Clear resp :: Clarity k) -> MetaClient caps qrys req (Clear resp :: Clarity k))
   -> Event t (f (ResponseHandler route a))
   -> m (Event t (f (Either TrasaErr a)))
 requestMultiWith toMeta contResp =
@@ -123,7 +128,7 @@ requestMultiWith toMeta contResp =
         buildXhrRequests = Preps . fmap buildOneXhrRequest
         buildOneXhrRequest :: ResponseHandler route a -> Pair (ResponseHandler route a) (XhrRequest BS.ByteString)
         buildOneXhrRequest w@(ResponseHandler p@(Prepared route _ _ _) _ _) =
-          Pair w (XhrRequest method (encodeUrl (linkWith toMeta p)) conf)
+          Pair w (XhrRequest method (encodeUrl (weakenedLinkWith toMeta p)) conf)
           where
             method = (encodeMethod . metaMethod . toMeta) route
             conf :: XhrRequestConfig BS.ByteString
@@ -137,36 +142,38 @@ requestMultiWith toMeta contResp =
             acceptHeader = "Accept" =: (TE.decodeUtf8 . BS.intercalate ", " . fmap N.renderHeader . toList) accepts
             Payload _ content accepts = payloadWith toMeta p
 
+
 -- | Used to serve single page apps
 serveWith
-  :: forall t m route
+  :: forall t m k route
   .  MonadWidget t m
-  => (forall caps qrys req resp. route caps qrys req resp -> MetaReflex caps qrys req resp)
+  => (forall caps qrys req (resp :: Clarity k). route caps qrys req resp -> MetaReflex caps qrys req resp)
   -> Router route
-  -> (forall caps qrys req resp.
-      route caps qrys req resp ->
+  -> (forall caps qrys req (resp :: Type).
+      route caps qrys req (Clear resp :: Clarity k) ->
       Rec Identity caps ->
       Rec Parameter qrys ->
-      ResponseBody Identity resp ->
-      m (Event t (Concealed route)))
+      ResponseBody Identity (Clear resp :: Clarity k) ->
+      m (Event t (Cleared route)))
+
   -- ^ Build a widget from captures, query parameters, and a response body
-  -> (TrasaErr -> m (Event t (Concealed route)))
+  -> (TrasaErr -> m (Event t (Cleared route)))
   -> m ()
 serveWith toMeta madeRouter widgetize onErr = mdo
   -- Investigate why this is needed
-  let newUrls = ffor (switch (current jumpsD)) $ \(Concealed route caps querys reqBody) ->
-        linkWith (mapMetaQuery captureEncoding . toMeta) (Prepared route caps querys reqBody)
+  let newUrls = ffor (switch (current jumpsD)) $ \(Cleared route caps querys reqBody) ->
+        weakenedLinkWith (mapMetaQuery captureEncoding . toMeta) (Prepared route caps querys reqBody)
   (u0, urls) <- url newUrls
   pb <- getPostBuild
   let transMetaParse = mapMetaQuery captureDecoding . mapMetaRequestBody (mapMany bodyDecoding)
       choice = ffor (leftmost [newUrls, urls, u0 <$ pb]) $ \us ->
-        parseWith (transMetaParse . toMeta) madeRouter "GET" us Nothing
+        parseClearedWith (transMetaParse . toMeta) madeRouter "GET" us Nothing
       (failures, concealeds) = fanEither choice
   actions <- requestMultiWith (metaReflexToMetaClient . toMeta) (fromConcealed <$> concealeds)
   jumpsD <- widgetHold (return never) (leftmost [onErr <$> failures, either onErr id . runIdentity <$> actions])
   return ()
   where
-    fromConcealed :: Concealed route -> Identity (ResponseHandler route (m (Event t (Concealed route))))
-    fromConcealed (Concealed route caps querys reqBody) =
+    fromConcealed :: Cleared route -> Identity (ResponseHandler route (m (Event t (Cleared route))))
+    fromConcealed (Cleared route caps querys reqBody) =
       Identity (ResponseHandler (Prepared route caps querys reqBody) (metaResponseBody (toMeta route))
-               (widgetize route caps querys . ResponseBody . Identity))
+               (widgetize route caps querys . ResponseBodyClear . Identity))
