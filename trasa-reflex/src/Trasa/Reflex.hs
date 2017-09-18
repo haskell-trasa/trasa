@@ -197,7 +197,7 @@ serveDynamicWith :: forall t m (route :: [Type] -> [Param] -> Bodiedness -> Type
   -> (Event t TrasaErr -> m (Event t (Concealed route)))
   -> [Constructed route]
   -> Event t (Concealed route) -- ^ extra jumps, possibly from menu bar
-  -> m ()
+  -> m (Event t (Concealed route))
 serveDynamicWith testRouteEquality toMeta madeRouter widgetize onErr routes extraJumps = mdo
   -- Investigate why this is needed
   let newUrls :: Event t Url
@@ -227,7 +227,7 @@ serveDynamicWith testRouteEquality toMeta madeRouter widgetize onErr routes extr
   errAttrs <- holdDyn hidden (fmap (maybe hidden (const M.empty)) merr)
   errJumpsE <- elDynAttr "div" errAttrs $ do
     onErr (fmapMaybe id merr)
-  return ()
+  return concealeds
   where
   castRequiem :: route w x y z -> FullMonty route -> Maybe (Requiem w x z)
   castRequiem route (FullMonty incomingRoute caps querys theResp) = case testRouteEquality route incomingRoute of
