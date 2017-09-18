@@ -196,11 +196,12 @@ serveDynamicWith :: forall t m (route :: [Type] -> [Param] -> Bodiedness -> Type
   -- ^ Build a widget from captures, query parameters, and a response body
   -> (Event t TrasaErr -> m (Event t (Concealed route)))
   -> [Constructed route]
+  -> Event t (Concealed route) -- ^ extra jumps, possibly from menu bar
   -> m ()
-serveDynamicWith testRouteEquality toMeta madeRouter widgetize onErr routes = mdo
+serveDynamicWith testRouteEquality toMeta madeRouter widgetize onErr routes extraJumps = mdo
   -- Investigate why this is needed
   let newUrls :: Event t Url
-      newUrls = ffor (leftmost [jumpsE,errJumpsE]) $ \(Concealed route caps querys reqBody) ->
+      newUrls = ffor (leftmost [jumpsE,errJumpsE,extraJumps]) $ \(Concealed route caps querys reqBody) ->
         linkWith (mapMetaQuery captureEncoding . toMeta) (Prepared route caps querys reqBody)
   (u0, urls) <- url newUrls
   pb <- getPostBuild
