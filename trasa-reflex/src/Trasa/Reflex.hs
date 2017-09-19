@@ -39,6 +39,7 @@ import qualified Network.HTTP.Types.Status as N
 import qualified Network.HTTP.Media as N
 import Reflex.Dom
 import Control.Monad (forM)
+import Data.Text (Text)
 
 import Trasa.Core hiding (requestWith,Arguments,handler)
 
@@ -191,10 +192,10 @@ serveDynamicWith :: forall t m (route :: [Type] -> [Param] -> Bodiedness -> Type
   -> (forall caps qrys req resp.
          route caps qrys req resp
       -> Event t (Requiem caps qrys resp)
-      -> m (Event t (Concealed route))
+      -> (Text, m (Event t (Concealed route))) -- first item is css class
      )
   -- ^ Build a widget from captures, query parameters, and a response body
-  -> (Event t TrasaErr -> m (Event t (Concealed route)))
+  -> (Event t TrasaErr -> (Text, m (Event t (Concealed route)))) -- first item is css class
   -> [Constructed route]
   -> Event t (Concealed route) -- ^ extra jumps, possibly from menu bar
   -> m (Event t (Concealed route))
@@ -219,14 +220,16 @@ serveDynamicWith testRouteEquality toMeta madeRouter widgetize onErr routes extr
   jumpsE <- fmap leftmost $ forM routes $ \(Constructed route) -> do
     let m = fmap (either (const Nothing) (castRequiem route)) actions
     attrs <- holdDyn hidden (fmap (maybe hidden (const M.empty)) m)
-    elDynAttr "div" attrs $ do
-      widgetize route (fmapMaybe id m)
+    let (rtClass,rtWidg) = widgetize route (fmapMaybe id m)
+    elDynAttr "div" (fmap (M.insert "class" rtClass) attrs) $ do
+      rtWidg
   -- let allFailures :: Event t TrasaErr
   --     allFailures = leftmost [parseFailures,serverFailures]
   let merr = fmap (either Just (const Nothing)) actions
   errAttrs <- holdDyn hidden (fmap (maybe hidden (const M.empty)) merr)
-  errJumpsE <- elDynAttr "div" errAttrs $ do
-    onErr (fmapMaybe id merr)
+  let (errClass,errWidg) = onErr (fmapMaybe id merr)
+  errJumpsE <- elDynAttr "div" (fmap (M.insert "class" errClass) errAttrs) $ do
+    errWidg
   return concealeds
   where
   castRequiem :: route w x y z -> FullMonty route -> Maybe (Requiem w x z)
