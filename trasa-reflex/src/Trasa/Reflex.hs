@@ -31,6 +31,7 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS (toStrict,fromStrict)
 
+import Data.Monoid ((<>))
 import Data.Type.Equality ((:~:)(Refl))
 import Data.Functor.Identity (Identity(..))
 import Data.Foldable (toList)
@@ -40,6 +41,7 @@ import qualified Network.HTTP.Media as N
 import Reflex.Dom
 import Control.Monad (forM)
 import Data.Text (Text)
+import Data.Map.Strict (Map)
 
 import Trasa.Core hiding (requestWith,Arguments,handler)
 
@@ -192,10 +194,10 @@ serveDynamicWith :: forall t m (route :: [Type] -> [Param] -> Bodiedness -> Type
   -> (forall caps qrys req resp.
          route caps qrys req resp
       -> Event t (Requiem caps qrys resp)
-      -> (Text, m (Event t (Concealed route))) -- first item is css class
+      -> (Map Text Text, m (Event t (Concealed route))) -- first item is css class
      )
   -- ^ Build a widget from captures, query parameters, and a response body
-  -> (Event t TrasaErr -> (Text, m (Event t (Concealed route)))) -- first item is css class
+  -> (Event t TrasaErr -> (Map Text Text, m (Event t (Concealed route)))) -- first item is css class
   -> [Constructed route]
   -> Event t (Concealed route) -- ^ extra jumps, possibly from menu bar
   -> m (Event t (Concealed route))
@@ -220,15 +222,15 @@ serveDynamicWith testRouteEquality toMeta madeRouter widgetize onErr routes extr
   jumpsE <- fmap leftmost $ forM routes $ \(Constructed route) -> do
     let m = fmap (either (const Nothing) (castRequiem route)) actions
     attrs <- holdDyn hidden (fmap (maybe hidden (const M.empty)) m)
-    let (rtClass,rtWidg) = widgetize route (fmapMaybe id m)
-    elDynAttr "div" (fmap (M.insert "class" rtClass) attrs) $ do
+    let (rtStaticAttrs,rtWidg) = widgetize route (fmapMaybe id m)
+    elDynAttr "div" (fmap (M.unionWith (<>) rtStaticAttrs) attrs) $ do
       rtWidg
   -- let allFailures :: Event t TrasaErr
   --     allFailures = leftmost [parseFailures,serverFailures]
   let merr = fmap (either Just (const Nothing)) actions
   errAttrs <- holdDyn hidden (fmap (maybe hidden (const M.empty)) merr)
-  let (errClass,errWidg) = onErr (fmapMaybe id merr)
-  errJumpsE <- elDynAttr "div" (fmap (M.insert "class" errClass) errAttrs) $ do
+  let (errStaticAttrs,errWidg) = onErr (fmapMaybe id merr)
+  errJumpsE <- elDynAttr "div" (fmap (M.unionWith (<>) errStaticAttrs) errAttrs) $ do
     errWidg
   return concealeds
   where
