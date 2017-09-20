@@ -25,7 +25,7 @@ request
      , HasBodyDecoding responseBodyStrat
      )
   => Event t (Prepared route response)
-  -> m (Event t (Either TrasaErr response))
+  -> m (Event t (Either ResponseError response))
 request = requestWith (transMeta . meta)
   where transMeta = mapMeta captureEncoding captureEncoding (mapMany bodyEncoding) (mapMany bodyDecoding)
 
@@ -41,7 +41,7 @@ requestMany
      , HasBodyDecoding responseBodyStrat
      )
   => Event t (f (Prepared route response))
-  -> m (Event t (f (Either TrasaErr response)))
+  -> m (Event t (f (Either ResponseError response)))
 requestMany = requestManyWith (transMeta . meta)
   where transMeta = mapMeta captureEncoding captureEncoding (mapMany bodyEncoding) (mapMany bodyDecoding)
 
@@ -63,7 +63,7 @@ serve
       Rec Parameter qrys ->
       ResponseBody Identity resp ->
       m (Event t (Concealed route)))
-  -> (TrasaErr -> m (Event t (Concealed route)))
+  -> (ResponseError -> m (Event t (Concealed route)))
   -> m ()
 serve = serveWith (transMeta . meta) router
   where transMeta = mapMeta captureEncoding captureCodec (mapMany bodyCodec) (mapMany bodyDecoding)
