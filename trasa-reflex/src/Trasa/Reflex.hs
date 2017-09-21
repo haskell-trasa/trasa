@@ -56,6 +56,7 @@ data DecodeError
   | MissingBody -- No response body
   | UnsupportedMediaType !N.MediaType -- Received a bad content-type from the server
   | UnparseableContent !Text -- The response body could not be parsed, field is error returned by parser
+  deriving (Show)
 
 data ResponseError = ResponseError !XhrResponse !DecodeError
 
