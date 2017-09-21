@@ -4,6 +4,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -20,7 +21,9 @@ module Trasa.Reflex
   , requestMultiWith
   , serveWith
   , Arguments
+  , EventArguments
   , handler
+  , eventHandler
   , Requiem(..)
   , serveDynamicWith
   , ResponseError(..)
@@ -45,6 +48,8 @@ import Control.Monad (forM,when)
 import Data.Text (Text)
 import Data.Map.Strict (Map)
 import Control.Applicative ((<|>))
+import Data.Proxy (Proxy(..))
+import Data.Vinyl.Core (rmap)
 
 import Trasa.Core hiding (requestWith,Arguments,handler)
 
@@ -67,6 +72,13 @@ type family Arguments (caps :: [Type]) (qrys :: [Param]) (resp :: Type) (result 
   Arguments '[] (q:qs) resp result = ParamBase q -> Arguments '[] qs resp result
   Arguments (cap:caps) qs resp result = cap -> Arguments caps qs resp result
 
+-- | Replaces 'Trasa.Core.Arguments' with one that does not deal with request bodies
+type family EventArguments (t :: Type) (caps :: [Type]) (qrys :: [Param]) (resp :: Type) (result :: Type) :: Type where
+  EventArguments t '[] '[] resp result = Event t resp -> result
+  EventArguments t '[] (q:qs) resp result = Event t (ParamBase q) -> EventArguments t '[] qs resp result
+  EventArguments t (cap:caps) qs resp result = Event t cap -> EventArguments t caps qs resp result
+
+
 -- | "Trasa.Reflex.handler" is to "Trasa.Core.handler" as "Trasa.Reflex.Arguments" is to "Trasa.Core.Arguments"
 handler :: Rec Identity caps -> Rec Parameter qrys -> ResponseBody Identity resp -> Arguments caps qrys resp x -> x
 handler = go
@@ -75,6 +87,36 @@ handler = go
     go RNil RNil (ResponseBody (Identity response)) f = f response
     go RNil (q :& qs) respBody f = go RNil qs respBody (f (demoteParameter q))
     go (Identity cap :& caps) qs respBody f = go caps qs respBody (f cap)
+
+eventHandler :: forall t caps qrys resp x. Reflex t
+  => Rec Proxy caps
+  -> Rec Proxy qrys
+  -> Event t (Requiem caps qrys resp)
+  -> EventArguments t caps qrys resp x
+  -> x
+eventHandler caps qrys e = go (selfSubset caps) (selfSubset qrys)
+  where
+    go :: forall caps' qrys'. Rec (Elem caps) caps' -> Rec (Elem qrys) qrys' -> EventArguments t caps' qrys' resp x -> x
+    go RNil RNil f = f (fmap (\(Requiem _ _ theResp) -> theResp) e)
+    go RNil (qryElem :& qs) f = go RNil qs (f (fmap (\(Requiem _ qryVals _) -> case elemGet qryElem qryVals of
+        ParameterFlag v -> v
+        ParameterOptional v -> v
+        ParameterList v -> v
+      ) e))
+    go (capElem :& cs) qryElems f = go cs qryElems (f (fmap (\(Requiem capVals _ _) -> runIdentity (elemGet capElem capVals)) e))
+    -- go (Identity cap :& caps) qs respBody f = go caps qs respBody (f cap)
+
+data Elem (as :: [k]) (a :: k) where
+  ElemHere :: Elem (a ': as) a
+  ElemThere :: Elem as a -> Elem (b ': as) a
+
+elemGet :: Elem rs r -> Rec f rs -> f r
+elemGet ElemHere (r :& _) = r
+elemGet (ElemThere elemNext) (_ :& rs) = elemGet elemNext rs
+
+selfSubset :: Rec Proxy rs -> Rec (Elem rs) rs
+selfSubset RNil = RNil
+selfSubset (Proxy :& rs) = ElemHere :& rmap ElemThere (selfSubset rs)
 
 -- | Used when you want to perform an action for any response type
 data ResponseHandler route a = forall resp. ResponseHandler
@@ -205,7 +247,7 @@ serveWith toMeta madeRouter widgetize onErr = mdo
 data Requiem caps qrys resp = Requiem
   { requiemCaptures :: Rec Identity caps
   , requiemQueries :: Rec Parameter qrys
-  , requiemResponse :: ResponseBody Identity resp
+  , requiemResponse :: resp
   }
 
 serveDynamicWith :: forall t m (route :: [Type] -> [Param] -> Bodiedness -> Type -> Type). MonadWidget t m
@@ -260,7 +302,7 @@ serveDynamicWith testRouteEquality toMeta madeRouter widgetize onErr routes extr
     ( ResponseHandler
       (Prepared route caps querys reqBody)
       (metaResponseBody (toMeta route))
-      (FullMonty route caps querys . ResponseBody . Identity)
+      (FullMonty route caps querys)
     )
 
 data FullMonty :: ([Type] -> [Param] -> Bodiedness -> Type -> Type) -> Type where
@@ -268,7 +310,7 @@ data FullMonty :: ([Type] -> [Param] -> Bodiedness -> Type -> Type) -> Type wher
        !(route captures querys request response)
     -> !(Rec Identity captures)
     -> !(Rec Parameter querys)
-    -> !(ResponseBody Identity response)
+    -> !response
     -> FullMonty route
   
 
