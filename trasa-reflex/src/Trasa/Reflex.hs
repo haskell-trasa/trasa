@@ -44,6 +44,7 @@ import Reflex.Dom
 import Control.Monad (forM,when)
 import Data.Text (Text)
 import Data.Map.Strict (Map)
+import Control.Applicative ((<|>))
 
 import Trasa.Core hiding (requestWith,Arguments,handler)
 
@@ -141,7 +142,7 @@ requestMultiWith toMeta contResp =
         parseOneXhrResponse :: Pair (ResponseHandler route a) XhrResponse -> Either ResponseError a
         parseOneXhrResponse (Pair (ResponseHandler _ responseBody fromResp) xhrResp@(XhrResponse statusCode _ _ response headers)) = first (ResponseError xhrResp) $ do
           when (statusCode >= 400) (Left (BadStatusCode statusCode))
-          theContentType <- maybe (Left MissingContentType) Right (M.lookup "Content-Type" headers)
+          theContentType <- maybe (Left MissingContentType) Right (M.lookup "Content-Type" headers <|> M.lookup "content-type" headers)
           content <- maybe (Left (UnparseableContentType theContentType)) Right (N.parseAccept (TE.encodeUtf8 theContentType))
           txt <- maybe (Left MissingBody) Right response
           let bs = LBS.fromStrict (TE.encodeUtf8 txt)
