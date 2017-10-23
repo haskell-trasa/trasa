@@ -20,7 +20,6 @@ import Data.Aeson
   (Value(..),FromJSON(..),ToJSON(..),encode,eitherDecode'
   ,object,withObject,(.:),(.=))
 import Net.Types (IPv4)
-import qualified Net.IPv4.String as IPv4
 import Control.Exception (catch,SomeException)
 import System.Exit (exitFailure)
 import qualified Network.HTTP.Types.Status as N
@@ -36,7 +35,7 @@ data Ip = Ip
   } deriving (Generic,FromJSON,ToJSON)
 
 instance Show Ip where
-  show (Ip ipv4) = "{ origin: " ++ IPv4.encode ipv4 ++ " }"
+  show (Ip ipv4) = "{ origin: " ++ show ipv4 ++ " }"
 
 data Args = Args
   { args :: H.HashMap T.Text Value
