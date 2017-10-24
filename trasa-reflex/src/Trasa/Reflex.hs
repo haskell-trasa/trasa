@@ -64,7 +64,7 @@ data DecodeError
   | UnparseableContent !Text -- The response body could not be parsed, field is error returned by parser
   deriving (Show)
 
-data ResponseError = ResponseError !XhrResponse !DecodeError
+data ResponseError route = ResponseError !XhrResponse !(Concealed route) !DecodeError
 
 -- | Replaces 'Trasa.Core.Arguments' with one that does not deal with request bodies
 type family Arguments (caps :: [Type]) (qrys :: [Param]) (resp :: Type) (result :: Type) :: Type where
@@ -144,7 +144,7 @@ requestWith
   .  MonadWidget t m
   => (forall caps qrys req resp. route caps qrys req resp -> MetaClient caps qrys req resp)
   -> Event t (Prepared route response)
-  -> m (Event t (Either ResponseError response))
+  -> m (Event t (Either (ResponseError route) response))
 requestWith toMeta prepared =
   coerceEvent <$> requestManyWith toMeta preparedId
   where preparedId = coerceEvent prepared :: Event t (Identity (Prepared route response))
@@ -156,7 +156,7 @@ requestManyWith
   => (forall caps qrys req resp. route caps qrys req resp -> MetaClient caps qrys req resp)
   -> Event t (f (Prepared route response))
   -- ^ The routes to request
-  -> m (Event t (f (Either ResponseError response)))
+  -> m (Event t (f (Either (ResponseError route) response)))
 requestManyWith toMeta prepared =
   requestMultiWith toMeta (fmap toResponseHandler <$> prepared)
   where toResponseHandler p@(Prepared route _ _ _) = ResponseHandler p (metaResponseBody (toMeta route)) id
@@ -171,18 +171,18 @@ decodeResponseBody' (ResponseBody (Many decodings)) (Content name content) = go 
       False -> go decs
 
 -- | Internal function but exported because it subsumes the function of all the other functions in this package.
--- | Very powerful function
+--   Very powerful function
 requestMultiWith :: forall t m f route a.
   (MonadWidget t m, Traversable f)
   => (forall caps qrys req resp. route caps qrys req resp -> MetaClient caps qrys req resp)
   -> Event t (f (ResponseHandler route a))
-  -> m (Event t (f (Either ResponseError a)))
+  -> m (Event t (f (Either (ResponseError route) a)))
 requestMultiWith toMeta contResp =
   fmap parseXhrResponses <$> performRequestsAsync (buildXhrRequests <$> contResp)
-  where parseXhrResponses :: Preps route a f XhrResponse -> f (Either ResponseError a)
+  where parseXhrResponses :: Preps route a f XhrResponse -> f (Either (ResponseError route) a)
         parseXhrResponses (Preps res) = fmap parseOneXhrResponse res
-        parseOneXhrResponse :: Pair (ResponseHandler route a) XhrResponse -> Either ResponseError a
-        parseOneXhrResponse (Pair (ResponseHandler _ responseBody fromResp) xhrResp@(XhrResponse statusCode _ _ response headers)) = first (ResponseError xhrResp) $ do
+        parseOneXhrResponse :: Pair (ResponseHandler route a) XhrResponse -> Either (ResponseError route) a
+        parseOneXhrResponse (Pair (ResponseHandler theRoute responseBody fromResp) xhrResp@(XhrResponse statusCode _ _ response headers)) = first (ResponseError xhrResp (conceal theRoute)) $ do
           when (statusCode >= 400) (Left (BadStatusCode statusCode))
           theContentType <- maybe (Left MissingContentType) Right (M.lookup "Content-Type" headers <|> M.lookup "content-type" headers)
           content <- maybe (Left (UnparseableContentType theContentType)) Right (N.parseAccept (TE.encodeUtf8 theContentType))
@@ -221,7 +221,7 @@ serveWith
       ResponseBody Identity resp ->
       m (Event t (Concealed route)))
   -- ^ Build a widget from captures, query parameters, and a response body
-  -> (ResponseError -> m (Event t (Concealed route)))
+  -> (ResponseError route -> m (Event t (Concealed route)))
   -> m ()
 serveWith toMeta madeRouter widgetize onErr = mdo
   -- Investigate why this is needed
@@ -260,7 +260,7 @@ serveDynamicWith :: forall t m (route :: [Type] -> [Param] -> Bodiedness -> Type
       -> (Map Text Text, m (Event t (Concealed route))) -- first item is css class
      )
   -- ^ Build a widget from captures, query parameters, and a response body
-  -> (Event t ResponseError -> (Map Text Text, m (Event t (Concealed route)))) -- first item is css class
+  -> (Event t (ResponseError route) -> (Map Text Text, m (Event t (Concealed route)))) -- first item is css class
   -> [Constructed route]
   -> Event t (Concealed route) -- ^ extra jumps, possibly from menu bar
   -> m (Event t (Concealed route))
@@ -277,8 +277,8 @@ serveDynamicWith testRouteEquality toMeta madeRouter widgetize onErr routes extr
         parseWith (transMetaParse . toMeta) madeRouter "GET" us Nothing
       -- currently ignoring parse failures
       (_parseFailures, concealeds) = fanEither choice
-  actions' :: Event t (Identity (Either ResponseError (FullMonty route))) <- requestMultiWith (metaReflexToMetaClient . toMeta) (fromConcealed <$> concealeds)
-  let actions = (coerceEvent actions' :: Event t (Either ResponseError (FullMonty route)))
+  actions' :: Event t (Identity (Either (ResponseError route) (FullMonty route))) <- requestMultiWith (metaReflexToMetaClient . toMeta) (fromConcealed <$> concealeds)
+  let actions = (coerceEvent actions' :: Event t (Either (ResponseError route) (FullMonty route)))
   let hidden = M.singleton "style" "display:none;"
   jumpsE <- fmap leftmost $ forM routes $ \(Constructed route) -> do
     let m = fmap (either (const Nothing) (castRequiem route)) actions
