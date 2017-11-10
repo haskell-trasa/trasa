@@ -263,17 +263,17 @@ serveDynamicWith :: forall t m (route :: [Type] -> [Param] -> Bodiedness -> Type
   -> (Event t (ResponseError route) -> (Map Text Text, m (Event t (Concealed route)))) -- first item is css class
   -> [Constructed route]
   -> Event t (Concealed route) -- ^ extra jumps, possibly from menu bar
+  -> Event t () -- ^ event that only fires once, build everything once this fires, often getPostBuild
   -> m (Event t (Concealed route))
-serveDynamicWith testRouteEquality toMeta madeRouter widgetize onErr routes extraJumps = mdo
+serveDynamicWith testRouteEquality toMeta madeRouter widgetize onErr routes extraJumps fire = mdo
   -- Investigate why this is needed
   let newUrls :: Event t Url
       newUrls = ffor (leftmost [jumpsE,errJumpsE,extraJumps]) $ \(Concealed route caps querys reqBody) ->
         linkWith (mapMetaQuery captureEncoding . toMeta) (Prepared route caps querys reqBody)
   (u0, urls) <- url newUrls
-  pb <- getPostBuild
   let transMetaParse = mapMetaQuery captureDecoding . mapMetaRequestBody (mapMany bodyDecoding)
       choice :: Event t (Either TrasaErr (Concealed route))
-      choice = ffor (leftmost [newUrls, urls, u0 <$ pb]) $ \us ->
+      choice = ffor (leftmost [newUrls, urls, u0 <$ fire]) $ \us ->
         parseWith (transMetaParse . toMeta) madeRouter "GET" us Nothing
       -- currently ignoring parse failures
       (_parseFailures, concealeds) = fanEither choice
