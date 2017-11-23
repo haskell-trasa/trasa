@@ -22,7 +22,7 @@ library
     , bytestring == 0.10.*
     , text == 1.2.*
     , wai == 3.2.*
-    , http-types == 0.9.*
+    , http-types == 0.10.*
     , http-media == 0.6.*
     , case-insensitive == 1.2.*
     , containers == 0.5.*

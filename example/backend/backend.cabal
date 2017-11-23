@@ -12,12 +12,12 @@ cabal-version:       >=1.10
 
 executable backend
   main-is:             Main.hs
-  build-depends:       base >=4.9 && <4.10
+  build-depends:       base >=4.9 && <5.0
                      , vinyl == 0.5.*
                      , containers == 0.5.*
                      , mtl == 2.2.*
                      , stm == 2.4.*
-                     , http-types == 0.9.*
+                     , http-types == 0.10.*
                      , wai == 3.2.*
                      , wai-extra == 3.0.*
                      , warp == 3.2.*
