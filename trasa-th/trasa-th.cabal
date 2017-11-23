@@ -15,8 +15,8 @@ library
                      , Trasa.TH.Lexer
                      , Trasa.TH.Parse
                      , Trasa.TH
-  build-depends:       base >=4.9 && <4.10
-                     , template-haskell == 2.11.*
+  build-depends:       base >=4.9 && < 5.0
+                     , template-haskell == 2.12.*
                      , containers >= 0.5
                      , megaparsec == 5.2.*
                      , trasa == 0.2.*
