@@ -3,11 +3,11 @@
 }:
 mkDerivation {
   pname = "http-types";
-  version = "0.10";
+  version = "0.11";
   src = fetchgit {
-    url = "https://github.com/chessai/http-types.git";
-    sha256 = "0wrxvspq6adjswiika8qzgmwvp4gpcq93pzhz9j1pnrvnd597z00";
-    rev = "57527d6f4fecc6a9d1852142d34f15a7f1a1213f";
+    url = "https://github.com/aristidb/http-types.git";
+    sha256 = "081mmqr96853z5pv214ijqcg7mx1z68ybdbz52zj35i307ic1lch";
+    rev = "12d9b9f7b1fea81298a033f1bedd7a8e9027963f";
   };
   libraryHaskellDepends = [
     array base bytestring case-insensitive text
