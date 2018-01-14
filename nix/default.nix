@@ -44,6 +44,7 @@ let
           singletons   = dontCheck (self.callPackage ./deps/singletons.nix {});
           vinyl        = dontCheck super.vinyl;
           ip           = dontCheck super.ip;
+          jsaddle      = dontCheck (self.callPackage ./deps/jsaddle.nix {}); 
           # Core Libraries
           trasa        = build "trasa"        ../trasa;
           trasa-server = build "trasa-server" ../trasa-server;
