@@ -2,4 +2,4 @@
 (import ../nix/default.nix {
   package = "trasa-client";
   inherit frontend test;
-}).trasa
+}).drv

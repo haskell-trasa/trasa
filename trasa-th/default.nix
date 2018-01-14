@@ -1,5 +1,5 @@
 { test ? true, frontend ? false }:
 (import ../nix/default.nix {
-  package = "interface";
+  package = "trasa-th";
   inherit frontend test;
-}).trasa
+}).drv
