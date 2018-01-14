@@ -42,7 +42,7 @@ let
           http-types   = self.callPackage ./deps/http-types.nix {};
           th-desugar   = dontCheck (self.callPackage ./deps/th-desugar.nix {});
           singletons   = dontCheck (self.callPackage ./deps/singletons.nix {});
-          vinyl        = dontCheck (self.callPackage ./deps/singletons.nix {});
+          vinyl        = dontCheck super.vinyl;
           # Core Libraries
           trasa        = build "trasa"        ../trasa;
           trasa-server = build "trasa-server" ../trasa-server;
