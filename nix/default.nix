@@ -43,6 +43,7 @@ let
           th-desugar   = dontCheck (self.callPackage ./deps/th-desugar.nix {});
           singletons   = dontCheck (self.callPackage ./deps/singletons.nix {});
           vinyl        = dontCheck super.vinyl;
+          ip           = dontCheck super.ip;
           # Core Libraries
           trasa        = build "trasa"        ../trasa;
           trasa-server = build "trasa-server" ../trasa-server;
