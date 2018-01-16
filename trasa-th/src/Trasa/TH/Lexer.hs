@@ -22,6 +22,7 @@ data ReservedChar
   | ReservedCharEqual
   | ReservedCharOpenBracket
   | ReservedCharCloseBracket
+  | ReservedCharComma
   deriving (Show,Eq,Ord)
 
 data ReservedSymbol
@@ -49,6 +50,7 @@ instance MP.ShowToken Lexeme where
           ReservedCharEqual -> "="
           ReservedCharOpenBracket -> "["
           ReservedCharCloseBracket -> "]"
+          ReservedCharComma -> ","
         LexemeSymbol sym -> case sym of
           ReservedSymbolDataType -> "data-type"
         LexemeString _ _ -> "any string"
@@ -81,11 +83,12 @@ lexeme = MP.choice
     , ReservedCharEqual <$ MP.char '='
     , ReservedCharOpenBracket <$ MP.char '['
     , ReservedCharCloseBracket <$ MP.char ']'
+    , ReservedCharComma <$ MP.char ','
     ]
   , LexemeSymbol <$> MP.choice
     [ ReservedSymbolDataType <$ MP.string "data-type"
     ]
-  , string <$> MP.some (MP.noneOf " \n:/?&=[]")
+  , string <$> MP.some (MP.noneOf " \n:/?&=[],")
   ]
   where string str = LexemeString (fromIntegral (length str)) str
 

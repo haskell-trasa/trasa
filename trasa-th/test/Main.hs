@@ -44,11 +44,11 @@ $(trasa (
   ]))
 
 
--- [parseTrasa|
---  data-type: ParsedRoute
---  ParsedAdd GET /add/:int/:int?third=int [] bodyInt
---  ParsedBlog POST /?id=[int] [bodyString] bodyUnit
--- |]
+[parseTrasa|
+data-type: ParsedRoute
+ParsedAdd GET /add/:int/:int?third=int [] [bodyInt]
+ParsedBlog POST /?id=int [bodyString] [bodyUnit]
+|]
 
 main :: IO ()
 main = do

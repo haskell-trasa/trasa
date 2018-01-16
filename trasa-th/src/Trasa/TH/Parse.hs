@@ -12,6 +12,8 @@ import qualified Text.Megaparsec as MP
 import Trasa.TH.Types
 import Trasa.TH.Lexer
 
+import Debug.Trace
+
 type Parser = MP.Parsec MP.Dec Stream
 
 wrongToken :: a -> S.Set (MP.ErrorItem a)
@@ -62,20 +64,28 @@ equal = matchChar ReservedCharEqual
 bracket :: Parser a -> Parser a
 bracket = MP.between (matchChar ReservedCharOpenBracket) (matchChar ReservedCharCloseBracket)
 
-captureRep :: Parser (CaptureRep Name)
-captureRep =
+comma :: Parser ()
+comma = matchChar ReservedCharComma
+
+capture :: Parser (CaptureRep Name)
+capture =
   fmap MatchRep string <|>
   fmap CaptureRep (colon *> name)
 
-queries :: Parser [QueryRep Name]
-queries = MP.sepBy (QueryRep <$> string <*> paramRep) ampersand
+query :: Parser [QueryRep Name]
+query = MP.sepBy (QueryRep <$> string <*> paramRep) ampersand
   where
     paramRep = MP.choice [ fmap OptionalRep optional, fmap ListRep list, pure FlagRep ]
     optional = MP.try (equal *> name)
     list = equal *> bracket name
 
--- bodiednessRep :: Parser (BodiednessRep Name)
--- bodiednessRep = bracket (MP.try (BodyRep <$> name) <|> pure BodylessRep)
+list :: Parser a -> Parser [a]
+list val = bracket (MP.sepBy val (optionalSpace *> comma <* optionalSpace))
+
+response :: Parser (NE.NonEmpty Name)
+response = list name >>= \case
+  [] -> fail "Response requires at least one response type in the list"
+  (n : ns) -> pure (n NE.:| ns)
 
 routeRep :: Parser (RouteRep Name)
 routeRep = do
@@ -85,12 +95,13 @@ routeRep = do
   method <- string
   space
   slash
-  caps <- MP.sepBy captureRep slash
-  qrys <- questionMark *> queries <|> return []
+  caps <- MP.sepBy capture slash
+  qrys <- questionMark *> query <|> return []
   space
-  req  <- return []
+  req  <- list name
   space
-  res  <- undefined
+  res  <- response
+  optionalSpace
   newline
   return (RouteRep routeId method caps qrys req res)
 
@@ -110,4 +121,4 @@ routesRep = do
 parseRoutesRep :: String -> Either String (RoutesRep Name)
 parseRoutesRep str = do
   tokens <- first MP.parseErrorPretty (MP.parse stream "" str)
-  first MP.parseErrorPretty (MP.parse routesRep "" tokens)
+  first MP.parseErrorPretty (MP.parse routesRep "" (traceShowId tokens))
