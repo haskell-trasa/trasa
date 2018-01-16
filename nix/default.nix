@@ -60,7 +60,8 @@ let
     pkg = overrides.${package};
 
 in {
-  inherit nixpkgs reflex-platform overrides;
+  nixpkgs = pkgs;
+  inherit reflex-platform overrides;
   drv =
     if test-all then
       { inherit (overrides) trasa trasa-client trasa-server trasa-reflex trasa-th; }
