@@ -16,9 +16,13 @@ import Trasa.Core
 
 class HasMeta route where
   type CaptureStrategy route :: Type -> Type
+  type CaptureStrategy route = CaptureCodec
   type QueryStrategy route :: Type -> Type
+  type QueryStrategy route = CaptureCodec
   type RequestBodyStrategy route :: Type -> Type
+  type RequestBodyStrategy route = Many BodyCodec
   type ResponseBodyStrategy route :: Type -> Type
+  type ResponseBodyStrategy route = Many BodyCodec
   meta
     :: route caps qrys req resp
     -> Meta (CaptureStrategy route) (QueryStrategy route) (RequestBodyStrategy route) (ResponseBodyStrategy route) caps qrys req resp

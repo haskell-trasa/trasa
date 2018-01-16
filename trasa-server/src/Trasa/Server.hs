@@ -8,6 +8,7 @@
 module Trasa.Server
   ( TrasaT
   , runTrasaT
+  , mapTrasaT
   , serveWith
   ) where
 
@@ -25,9 +26,9 @@ import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Map.Strict as M
-import Control.Monad.Reader (ReaderT,runReaderT,MonadReader(..),MonadTrans(..))
-import Control.Monad.Except (ExceptT,runExceptT,MonadError(..),MonadIO(..))
-import Control.Monad.State.Strict (StateT,runStateT,MonadState(..))
+import Control.Monad.Reader (ReaderT,runReaderT,mapReaderT,MonadReader(..),MonadTrans(..))
+import Control.Monad.Except (ExceptT,runExceptT,mapExceptT,MonadError(..),MonadIO(..))
+import Control.Monad.State.Strict (StateT,runStateT,mapStateT,MonadState(..))
 
 import Trasa.Core
 
@@ -52,6 +53,9 @@ runTrasaT
   -> M.Map (CI BS.ByteString) T.Text -- ^ Headers
   -> m (Either TrasaErr a, M.Map (CI BS.ByteString) T.Text)
 runTrasaT trasa headers = (flip runReaderT headers . flip runStateT M.empty . runExceptT  . unTrasaT) trasa
+
+mapTrasaT :: (forall x. m x -> n x) -> TrasaT m a -> TrasaT n a
+mapTrasaT eta = TrasaT . mapExceptT (mapStateT (mapReaderT eta)) . unTrasaT
 
 serveWith
   :: (forall caps qrys req resp. route caps qrys req resp -> MetaServer caps qrys req resp)

@@ -79,7 +79,7 @@ type family EventArguments (t :: Type) (caps :: [Type]) (qrys :: [Param]) (resp 
   EventArguments t (cap:caps) qs resp result = Event t cap -> EventArguments t caps qs resp result
 
 
--- | "Trasa.Reflex.handler" is to "Trasa.Core.handler" as "Trasa.Reflex.Arguments" is to "Trasa.Core.Arguments"
+-- | Trasa.Reflex.'Trasa.Reflex.handler' is to Trasa.Core.'Trasa.Core.handler' as Trasa.Reflex.'Trasa.Reflex.Arguments' is to Trasa.Core.'Trasa.Core.Arguments'
 handler :: Rec Identity caps -> Rec Parameter qrys -> ResponseBody Identity resp -> Arguments caps qrys resp x -> x
 handler = go
   where
