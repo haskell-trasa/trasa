@@ -311,7 +311,13 @@ mapMeta mapCaps mapQrys mapReq mapResp (Meta caps qrys req res method) = Meta
 
 type MetaBuilder = Meta CaptureCodec CaptureCodec BodyCodec BodyCodec
 
-metaBuilderToMetaCodec :: MetaBuilder caps qrys req resp -> MetaCodec caps qrys req resp
+
+-- | This function is a more general way to transform 'MetaBuilder' into 'MetaCodec'.
+--
+--   It wraps the req and resp codecs in Many.
+metaBuilderToMetaCodec
+  :: Meta capCodec qryCodec reqCodec respCodec caps qrys req resp
+  -> Meta capCodec qryCodec (Many reqCodec) (Many respCodec) caps qrys req resp
 metaBuilderToMetaCodec (Meta path query reqBody respBody method) = Meta
   path
   query
