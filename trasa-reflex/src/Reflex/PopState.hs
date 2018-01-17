@@ -35,7 +35,8 @@ url us = do
     window   <- currentWindowUnchecked
     loc <- getLocation window
     locStr   <- getPathname loc
-    (return . decodeUrl) locStr
+    searchStr <- getSearch loc
+    return (decodeUrl (locStr <> searchStr))
   performEvent_ $ ffor us $ \uri -> liftJSM $ do
     f <- eval ("(function (url) { window[\"history\"][\"pushState\"](0,\"\",url) })" :: T.Text)
     jsUri <- toJSVal (encodeUrl uri)
