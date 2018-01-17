@@ -44,6 +44,7 @@ let
           vinyl        = dontCheck super.vinyl;
           ip           = dontCheck super.ip;
           jsaddle      = dontCheck (self.callPackage ./deps/jsaddle.nix {});
+          jsaddle-warp = dontCheck (self.callPackage ./deps/jsaddle-warp.nix {}); 
           # Core Libraries
           trasa        = build "trasa"        ../trasa;
           trasa-server = build "trasa-server" ../trasa-server;
