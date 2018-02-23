@@ -3,7 +3,7 @@ let
   fetchNixpkgs = import ./fetchNixpkgs.nix;
   nixpkgs = fetchNixpkgs {
     rev = "5c73ee1a9375d225a66a4fd469fc82e59a2d7414";
-    sha256 = "1x577rg8q4zlxd77kpyppbx87d47j1q165yz1ps7d7894gcy7nb5";
+    sha256 = "1x577rg8q4zlxd77kpyppbx87d47j1q165yz1ps7d7894gcy7nb5"; 
   };
   pkgs = import nixpkgs { config = {}; };
   inherit (pkgs) haskell;
@@ -60,7 +60,7 @@ let
     };
     pkg = overrides.${package};
 
-in {
+in rec {
   nixpkgs = pkgs;
   inherit reflex-platform overrides;
   drv =
@@ -69,5 +69,6 @@ in {
     else
       if reflex-platform.nixpkgs.lib.inNixShell then
         reflex-platform.workOn overrides pkg
-    else pkg;
+        else pkg;
+  default = drv;
 }

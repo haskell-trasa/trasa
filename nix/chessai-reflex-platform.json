@@ -1,7 +1,7 @@
 {
   "url": "https://github.com/chessai/reflex-platform",
-  "rev": "59dace58607b92b1b7879f76af3c470dddb90e3f", 
-  "date": "2018-01-13",
-  "sha256": "1vhyygz3lckhla3n6wapdx0v0fmk9g3dz7470crmvqp27d6q2gm2", 
+  "rev": "a626b1a35a540516603c4d37920d443ef508839b", 
+  "date": "2018-02-23",
+  "sha256": "0bbak839pd7x3x6x33g5yhm42plzb47mpbqi4i683zghhmb6a1j3",
   "fetchSubmodules": true
 }
