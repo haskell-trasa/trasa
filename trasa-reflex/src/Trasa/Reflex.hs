@@ -25,6 +25,7 @@ module Trasa.Reflex
   , handler
   , eventHandler
   , Requiem(..)
+  , serveEventfulWith
   , serveDynamicWith
   , ResponseError(..)
   , DecodeError(..)
@@ -250,7 +251,7 @@ data Requiem caps qrys resp = Requiem
   , requiemResponse :: resp
   }
 
-serveDynamicWith :: forall t m (route :: [Type] -> [Param] -> Bodiedness -> Type -> Type). MonadWidget t m
+serveEventfulWith :: forall t m (route :: [Type] -> [Param] -> Bodiedness -> Type -> Type). MonadWidget t m
   => (forall caps1 qrys1 req1 resp1 caps2 qrys2 req2 resp2. route caps1 qrys1 req1 resp1 -> route caps2 qrys2 req2 resp2 -> Maybe ('(caps1,qrys1,req1,resp1) :~: '(caps2,qrys2,req2,resp2)))
   -> (forall caps qrys req resp. route caps qrys req resp -> MetaReflex caps qrys req resp)
   -> Router route
@@ -265,7 +266,7 @@ serveDynamicWith :: forall t m (route :: [Type] -> [Param] -> Bodiedness -> Type
   -> Event t (Concealed route) -- ^ extra jumps, possibly from menu bar
   -> Event t () -- ^ event that only fires once, build everything once this fires, often getPostBuild
   -> m (Event t (Concealed route))
-serveDynamicWith testRouteEquality toMeta madeRouter widgetize onErr routes extraJumps fire = mdo
+serveEventfulWith testRouteEquality toMeta madeRouter widgetize onErr routes extraJumps fire = mdo
   -- Investigate why this is needed
   let newUrls :: Event t Url
       newUrls = ffor (leftmost [jumpsE,errJumpsE,extraJumps]) $ \(Concealed route caps querys reqBody) ->
@@ -284,6 +285,71 @@ serveDynamicWith testRouteEquality toMeta madeRouter widgetize onErr routes extr
     let m = fmap (either (const Nothing) (castRequiem route)) actions
     attrs <- holdDyn hidden (fmap (maybe hidden (const M.empty)) m)
     let (rtStaticAttrs,rtWidg) = widgetize route (fmapMaybe id m)
+    elDynAttr "div" (fmap (M.unionWith (<>) rtStaticAttrs) attrs) $ do
+      rtWidg
+  let merr = fmap (either Just (const Nothing)) actions
+  errAttrs <- holdDyn hidden (fmap (maybe hidden (const M.empty)) merr)
+  let (errStaticAttrs,errWidg) = onErr (fmapMaybe id merr)
+  errJumpsE <- elDynAttr "div" (fmap (M.unionWith (<>) errStaticAttrs) errAttrs) $ do
+    errWidg
+  return concealeds
+  where
+  castRequiem :: route w x y z -> FullMonty route -> Maybe (Requiem w x z)
+  castRequiem route (FullMonty incomingRoute caps querys theResp) = case testRouteEquality route incomingRoute of
+    Nothing -> Nothing
+    Just Refl -> Just (Requiem caps querys theResp)
+  fromConcealed :: Concealed route -> Identity (ResponseHandler route (FullMonty route))
+  fromConcealed (Concealed route caps querys reqBody) = Identity
+    ( ResponseHandler
+      (Prepared route caps querys reqBody)
+      (metaResponseBody (toMeta route))
+      (FullMonty route caps querys)
+    )
+
+dynAfter :: forall t m a b. MonadWidget t m => Event t a -> (Dynamic t a -> m (Event t b)) -> m (Event t b)
+dynAfter e f = do
+  e1 <- headE e
+  let em1 = fmap (\a1 -> holdDyn a1 e >>= f) e1
+  de <- widgetHold (return never) em1
+  return (switch (current de))
+
+serveDynamicWith :: forall t m (route :: [Type] -> [Param] -> Bodiedness -> Type -> Type). MonadWidget t m
+  => (forall caps1 qrys1 req1 resp1 caps2 qrys2 req2 resp2. route caps1 qrys1 req1 resp1 -> route caps2 qrys2 req2 resp2 -> Maybe ('(caps1,qrys1,req1,resp1) :~: '(caps2,qrys2,req2,resp2)))
+  -> (forall caps qrys req resp. route caps qrys req resp -> MetaReflex caps qrys req resp)
+  -> Router route
+  -> (forall caps qrys req resp. route caps qrys req resp -> Map Text Text)
+  -- ^ Turn route into static html attributes
+  -> (forall caps qrys req resp.
+         route caps qrys req resp
+      -> Dynamic t (Requiem caps qrys resp)
+      -> m (Event t (Concealed route))
+     )
+  -- ^ Build a widget from captures, query parameters, and a response body
+  -> (Event t (ResponseError route) -> (Map Text Text, m (Event t (Concealed route)))) -- first item is css class
+  -> [Constructed route]
+  -> Event t (Concealed route) -- ^ extra jumps, possibly from menu bar
+  -> Event t () -- ^ event that only fires once, build everything once this fires, often getPostBuild
+  -> m (Event t (Concealed route))
+serveDynamicWith testRouteEquality toMeta madeRouter attrize widgetize onErr routes extraJumps fire = mdo
+  -- Investigate why this is needed
+  let newUrls :: Event t Url
+      newUrls = ffor (leftmost [jumpsE,errJumpsE,extraJumps]) $ \(Concealed route caps querys reqBody) ->
+        linkWith (mapMetaQuery captureEncoding . toMeta) (Prepared route caps querys reqBody)
+  (u0, urls) <- url newUrls
+  let transMetaParse = mapMetaQuery captureDecoding . mapMetaRequestBody (mapMany bodyDecoding)
+      choice :: Event t (Either TrasaErr (Concealed route))
+      choice = ffor (leftmost [newUrls, urls, u0 <$ fire]) $ \us ->
+        parseWith (transMetaParse . toMeta) madeRouter "GET" us Nothing
+      -- currently ignoring parse failures
+      (_parseFailures, concealeds) = fanEither choice
+  actions' :: Event t (Identity (Either (ResponseError route) (FullMonty route))) <- requestMultiWith (metaReflexToMetaClient . toMeta) (fromConcealed <$> concealeds)
+  let actions = (coerceEvent actions' :: Event t (Either (ResponseError route) (FullMonty route)))
+  let hidden = M.singleton "style" "display:none;"
+  jumpsE <- fmap leftmost $ forM routes $ \(Constructed route) -> do
+    let m = fmap (either (const Nothing) (castRequiem route)) actions
+    attrs <- holdDyn hidden (fmap (maybe hidden (const M.empty)) m)
+    let rtStaticAttrs = attrize route
+    let rtWidg = dynAfter (fmapMaybe id m) (widgetize route)
     elDynAttr "div" (fmap (M.unionWith (<>) rtStaticAttrs) attrs) $ do
       rtWidg
   let merr = fmap (either Just (const Nothing)) actions
