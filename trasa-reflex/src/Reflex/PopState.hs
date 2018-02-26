@@ -4,6 +4,7 @@
 module Reflex.PopState (url) where
 
 import qualified Data.Text as T
+import Data.Monoid ((<>))
 import Reflex.Class (Reflex(..),MonadHold(..),ffor)
 import Reflex.PerformEvent.Class (PerformEvent(..))
 import Reflex.TriggerEvent.Class (TriggerEvent)
@@ -14,7 +15,7 @@ import GHCJS.DOM.Types (MonadJSM,liftJSM,ToJSVal(..))
 import GHCJS.DOM.EventM (on)
 import GHCJS.DOM.Window (getLocation)
 import GHCJS.DOM.WindowEventHandlers (popState)
-import GHCJS.DOM.Location (getPathname)
+import GHCJS.DOM.Location (getPathname,getSearch)
 import Trasa.Core (Url,decodeUrl,encodeUrl)
 
 getPopState :: (Reflex t, TriggerEvent t m, MonadJSM m) => m (Event t Url)
@@ -23,7 +24,8 @@ getPopState = do
   wrapDomEvent window (`on` popState) $ do
     loc <- getLocation window
     locStr <- getPathname loc
-    (return . decodeUrl) locStr
+    searchStr <- getSearch loc
+    return (decodeUrl (locStr <> searchStr))
 
 -- | The starting location and a stream of popstate urls
 url :: (MonadHold t m, TriggerEvent t m, PerformEvent t m, MonadJSM (Performable m), MonadJSM m) =>
@@ -33,7 +35,8 @@ url us = do
     window   <- currentWindowUnchecked
     loc <- getLocation window
     locStr   <- getPathname loc
-    (return . decodeUrl) locStr
+    searchStr <- getSearch loc
+    return (decodeUrl (locStr <> searchStr))
   performEvent_ $ ffor us $ \uri -> liftJSM $ do
     f <- eval ("(function (url) { window[\"history\"][\"pushState\"](0,\"\",url) })" :: T.Text)
     jsUri <- toJSVal (encodeUrl uri)
