@@ -24,6 +24,7 @@ module Trasa.Reflex
   , EventArguments
   , handler
   , eventHandler
+  , dynamicHandler
   , Requiem(..)
   , serveEventfulWith
   , serveDynamicWith
@@ -73,12 +74,19 @@ type family Arguments (caps :: [Type]) (qrys :: [Param]) (resp :: Type) (result 
   Arguments '[] (q:qs) resp result = ParamBase q -> Arguments '[] qs resp result
   Arguments (cap:caps) qs resp result = cap -> Arguments caps qs resp result
 
--- | Replaces 'Trasa.Core.Arguments' with one that does not deal with request bodies
+-- | Replaces 'Trasa.Core.Arguments' with one that does not deal with request bodies.
+--   Everything is wrapped in an 'Event'.
 type family EventArguments (t :: Type) (caps :: [Type]) (qrys :: [Param]) (resp :: Type) (result :: Type) :: Type where
   EventArguments t '[] '[] resp result = Event t resp -> result
   EventArguments t '[] (q:qs) resp result = Event t (ParamBase q) -> EventArguments t '[] qs resp result
   EventArguments t (cap:caps) qs resp result = Event t cap -> EventArguments t caps qs resp result
 
+-- | Replaces 'Trasa.Core.Arguments' with one that does not deal with request bodies.
+--   Everything is wrapped in a 'Dynamic'.
+type family DynamicArguments (t :: Type) (caps :: [Type]) (qrys :: [Param]) (resp :: Type) (result :: Type) :: Type where
+  DynamicArguments t '[] '[] resp result = Dynamic t resp -> result
+  DynamicArguments t '[] (q:qs) resp result = Dynamic t (ParamBase q) -> DynamicArguments t '[] qs resp result
+  DynamicArguments t (cap:caps) qs resp result = Dynamic t cap -> DynamicArguments t caps qs resp result
 
 -- | Trasa.Reflex.'Trasa.Reflex.handler' is to Trasa.Core.'Trasa.Core.handler' as Trasa.Reflex.'Trasa.Reflex.Arguments' is to Trasa.Core.'Trasa.Core.Arguments'
 handler :: Rec Identity caps -> Rec Parameter qrys -> ResponseBody Identity resp -> Arguments caps qrys resp x -> x
@@ -88,6 +96,8 @@ handler = go
     go RNil RNil (ResponseBody (Identity response)) f = f response
     go RNil (q :& qs) respBody f = go RNil qs respBody (f (demoteParameter q))
     go (Identity cap :& caps) qs respBody f = go caps qs respBody (f cap)
+
+
 
 eventHandler :: forall t caps qrys resp x. Reflex t
   => Rec Proxy caps
@@ -105,7 +115,23 @@ eventHandler caps qrys e = go (selfSubset caps) (selfSubset qrys)
         ParameterList v -> v
       ) e))
     go (capElem :& cs) qryElems f = go cs qryElems (f (fmap (\(Requiem capVals _ _) -> runIdentity (elemGet capElem capVals)) e))
-    -- go (Identity cap :& caps) qs respBody f = go caps qs respBody (f cap)
+
+dynamicHandler :: forall t caps qrys resp x. Reflex t
+  => Rec Proxy caps
+  -> Rec Proxy qrys
+  -> Dynamic t (Requiem caps qrys resp)
+  -> DynamicArguments t caps qrys resp x
+  -> x
+dynamicHandler caps qrys e = go (selfSubset caps) (selfSubset qrys)
+  where
+    go :: forall caps' qrys'. Rec (Elem caps) caps' -> Rec (Elem qrys) qrys' -> DynamicArguments t caps' qrys' resp x -> x
+    go RNil RNil f = f (fmap (\(Requiem _ _ theResp) -> theResp) e)
+    go RNil (qryElem :& qs) f = go RNil qs (f (fmap (\(Requiem _ qryVals _) -> case elemGet qryElem qryVals of
+        ParameterFlag v -> v
+        ParameterOptional v -> v
+        ParameterList v -> v
+      ) e))
+    go (capElem :& cs) qryElems f = go cs qryElems (f (fmap (\(Requiem capVals _ _) -> runIdentity (elemGet capElem capVals)) e))
 
 data Elem (as :: [k]) (a :: k) where
   ElemHere :: Elem (a ': as) a
