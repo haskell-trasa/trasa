@@ -40,7 +40,7 @@ let
         in
         {
           # Dependencies
-          http-types   = self.callPackage ./deps/http-types.nix {};
+          http-types   = dontCheck (self.callPackage ./deps/http-types.nix {});
           vinyl        = dontCheck super.vinyl;
           ip           = dontCheck super.ip;
           jsaddle      = dontCheck (self.callPackage ./deps/jsaddle.nix {});
