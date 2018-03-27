@@ -23,7 +23,7 @@ library
     , text == 1.2.*
     , wai == 3.2.*
     , http-types >= 0.9 
-    , http-media == 0.6.*
+    , http-media >= 0.6 && < 0.8
     , case-insensitive == 1.2.*
     , containers == 0.5.*
     , mtl == 2.2.*

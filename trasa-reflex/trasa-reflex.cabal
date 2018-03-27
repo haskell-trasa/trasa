@@ -22,7 +22,7 @@ library
     , bytestring == 0.10.*
     , text == 1.2.*
     , http-types >= 0.9
-    , http-media == 0.6.*
+    , http-media >= 0.6 && < 0.8
     , containers == 0.5.*
     , jsaddle > 0.8 && < 0.10
     , ghcjs-dom > 0.7 && < 0.11
