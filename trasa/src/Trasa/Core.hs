@@ -147,6 +147,7 @@ import qualified Network.HTTP.Types.Status as N
 import qualified Network.HTTP.Media.MediaType as N
 import qualified Network.HTTP.Media.Accept as N
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Semigroup as SG
 import Data.HashMap.Strict (HashMap)
 import Data.Vinyl (Rec(..),rmap,rtraverse)
 import Data.Vinyl.TypeLevel (type (++))
@@ -747,7 +748,10 @@ data IxedRouter :: ([Type] -> [Param] -> Bodiedness -> Type -> Type) -> Nat -> T
 --   routes were overlapped.
 instance Monoid (IxedRouter route n) where
   mempty = IxedRouter HM.empty Nothing HM.empty
-  mappend = unionIxedRouter
+  mappend = (SG.<>)
+
+instance SG.Semigroup (IxedRouter route n) where
+  (<>) = unionIxedRouter
 
 data IxedResponder :: ([Type] -> [Param] -> Bodiedness -> Type -> Type) -> Nat -> Type where
   IxedResponder ::

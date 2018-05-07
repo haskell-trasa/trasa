@@ -1,0 +1,3 @@
+packages: ./trasa
+          ./trasa-client
+          ./trasa-server

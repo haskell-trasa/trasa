@@ -26,3 +26,4 @@ trasa-reflex/result
 example/frontend/result
 example/common/result
 result
+.ghc*
