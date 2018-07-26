@@ -3,6 +3,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {-# OPTIONS_GHC -Wall -Werror #-}
 module Trasa.Server
@@ -19,6 +20,7 @@ import Data.Functor.Identity
 import Network.HTTP.Types.Header (hAccept,hContentType)
 import qualified Network.HTTP.Types.Status as N
 import qualified Network.HTTP.Media.Accept as N
+import qualified Network.HTTP.Media.MediaType as N
 import qualified Network.HTTP.Media.RenderHeader as N
 import Data.CaseInsensitive (CI)
 import qualified Network.Wai as WAI
@@ -92,6 +94,8 @@ serveWith toMeta makeResponse madeRouter =
   where
     encodeHeaders = M.toList . fmap TE.encodeUtf8
     parseHeaders = traverse TE.decodeUtf8' . M.fromList . WAI.requestHeaders
-    parseAccepts headers = do
-      accept <- M.lookup hAccept headers
-      (traverse N.parseAccept . fmap (TE.encodeUtf8 . T.dropAround (' '==)) . T.splitOn ",") accept
+    parseAccepts :: Headers
+                 -> Maybe [N.MediaType]
+    parseAccepts headers = case M.lookup hAccept headers of
+      Nothing -> Just ["*/*"]
+      Just accept -> (traverse N.parseAccept . fmap (TE.encodeUtf8 . T.dropAround (' '==)) . T.splitOn ",") accept
