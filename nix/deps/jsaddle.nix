@@ -6,11 +6,11 @@
 }:
 mkDerivation {
   pname = "jsaddle";
-  version = "0.9.4.0";
+  version = "0.9.5.0";
   src = fetchgit {
     url = "https://github.com/ghcjs/jsaddle";
-    sha256 = "11gjqqh859j8n9ixzbwqwl692ysank408qzw0dijz6nlv3b0x86f";
-    rev = "3f8b32833917f1a2dfbdb81ef00992fb54733c9a";
+    sha256 = "09plndkh5wnbqi34x3jpaz0kjdjgyf074faf5xk97rsm81vhz8kk";
+    rev = "b423436565fce7f69a65d843c71fc52dc455bf54";
   };
   postUnpack = "sourceRoot+=/jsaddle; echo source root reset to $sourceRoot";
   libraryHaskellDepends = [

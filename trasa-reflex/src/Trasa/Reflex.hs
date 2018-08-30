@@ -28,6 +28,7 @@ module Trasa.Reflex
   , Requiem(..)
   , serveEventfulWith
   , serveDynamicWith
+  , serveDynamicIntermWith
   , ResponseError(..)
   , DecodeError(..)
   ) where
@@ -397,6 +398,74 @@ serveDynamicWith testRouteEquality toMeta madeRouter attrize widgetize onErr rou
       (FullMonty route caps querys)
     )
 
+serveDynamicIntermWith :: forall t m (route :: [Type] -> [Param] -> Bodiedness -> Type -> Type). MonadWidget t m
+  => (forall caps1 qrys1 req1 resp1 caps2 qrys2 req2 resp2. route caps1 qrys1 req1 resp1 -> route caps2 qrys2 req2 resp2 -> Maybe ('(caps1,qrys1,req1,resp1) :~: '(caps2,qrys2,req2,resp2)))
+  -> (forall caps qrys req resp. route caps qrys req resp -> MetaReflex caps qrys req resp)
+  -> Router route
+  -> (forall caps qrys req resp. route caps qrys req resp -> Map Text Text)
+  -- ^ Turn route into static html attributes
+  -> (forall caps qrys req resp.
+         route caps qrys req resp
+      -> Dynamic t (Requiem caps qrys resp)
+      -> m (Event t (Concealed route))
+     )
+  -- ^ Build a widget from captures, query parameters, and a response body
+  -> (Event t (ResponseError route) -> (Map Text Text, m (Event t (Concealed route)))) -- first item is css class
+  -> m (Event t (Concealed route))
+  -> [Constructed route]
+  -> Event t (Concealed route) -- ^ extra jumps, possibly from menu bar
+  -> Event t () -- ^ event that only fires once, build everything once this fires, often getPostBuild
+  -> m (Event t (Concealed route))
+serveDynamicIntermWith testRouteEquality toMeta madeRouter attrize widgetize onErr interm routes extraJumps fire = mdo
+  -- Investigate why this is needed
+  let newUrls :: Event t Url
+      newUrls = ffor (leftmost [jumpsE,errJumpsE,intermJumpsE,extraJumps]) $ \(Concealed route caps querys reqBody) ->
+        linkWith (mapMetaQuery captureEncoding . toMeta) (Prepared route caps querys reqBody)
+  (u0, urls) <- url newUrls
+  let transMetaParse = mapMetaQuery captureDecoding . mapMetaRequestBody (mapMany bodyDecoding)
+      choice :: Event t (Either TrasaErr (Concealed route))
+      choice = ffor (leftmost [newUrls, urls, u0 <$ fire]) $ \us ->
+        parseWith (transMetaParse . toMeta) madeRouter "GET" us Nothing
+      -- currently ignoring parse failures
+      (_parseFailures, concealeds) = fanEither choice
+  actions' :: Event t (Identity (Either (ResponseError route) (FullMonty route))) <- requestMultiWith (metaReflexToMetaClient . toMeta) (fromConcealed <$> concealeds)
+  let actions = (coerceEvent actions' :: Event t (Either (ResponseError route) (FullMonty route)))
+  let hidden = M.singleton "style" "display:none;"
+  jumpsE <- fmap leftmost $ forM routes $ \(Constructed route) -> do
+    let m = fmap (either (const Nothing) (castRequiem route)) actions
+    attrs <- holdDyn hidden (fmap (maybe hidden (const M.empty)) m)
+    let rtStaticAttrs = attrize route
+    let rtWidg = dynAfter (fmapMaybe id m) (widgetize route)
+    elDynAttr "div" (fmap (M.unionWith (<>) rtStaticAttrs) attrs) $ do
+      rtWidg
+  let merr = fmap (either Just (const Nothing)) actions
+  errAttrs <- holdDyn hidden (fmap (maybe hidden (const M.empty)) merr)
+  let (errStaticAttrs,errWidg) = onErr (fmapMaybe id merr)
+  errJumpsE <- elDynAttr "div" (fmap (M.unionWith (<>) errStaticAttrs) errAttrs) $ do
+    (errWidg :: m (Event t (Concealed route)))
+
+  let initialRequest :: Event t (Either Url (Either (ResponseError route) (FullMonty route)))
+      initialRequest = leftmost [Left <$> newUrls, Right <$> actions]
+      minterm :: Event t (Maybe Url)
+      minterm = fmap (either Just (const Nothing)) initialRequest
+  intermAttrs :: Dynamic t (Map Text Text) <- holdDyn hidden (fmap (maybe hidden (const M.empty)) minterm)
+  intermJumpsE <- elDynAttr "div" intermAttrs $ do 
+    (interm :: m (Event t (Concealed route)))
+
+  return concealeds
+  where
+  castRequiem :: route w x y z -> FullMonty route -> Maybe (Requiem w x z)
+  castRequiem route (FullMonty incomingRoute caps querys theResp) = case testRouteEquality route incomingRoute of
+    Nothing -> Nothing
+    Just Refl -> Just (Requiem caps querys theResp)
+  fromConcealed :: Concealed route -> Identity (ResponseHandler route (FullMonty route))
+  fromConcealed (Concealed route caps querys reqBody) = Identity
+    ( ResponseHandler
+      (Prepared route caps querys reqBody)
+      (metaResponseBody (toMeta route))
+      (FullMonty route caps querys)
+    )
+
 data FullMonty :: ([Type] -> [Param] -> Bodiedness -> Type -> Type) -> Type where
   FullMonty ::
        !(route captures querys request response)
@@ -405,4 +474,3 @@ data FullMonty :: ([Type] -> [Param] -> Bodiedness -> Type -> Type) -> Type wher
     -> !response
     -> FullMonty route
   
-
