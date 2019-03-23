@@ -7,7 +7,7 @@ synopsis:
   Template Haskell to generate trasa routes
 description:
   Trasa routes can sometimes be tedious to write out by hand, so `trasa-th`
-  offers some `-XTemplateHaskell`-based help in generate your `Route`
+  offers some `-XTemplateHaskell`-based help to generate your `Route`
   GADT.
 homepage:
   https://github.com/haskell-trasa/trasa
