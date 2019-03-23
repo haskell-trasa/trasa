@@ -12,7 +12,6 @@ module Trasa.Tutorial
 
 import Trasa.Core
 import qualified Trasa.Method as M
-import Data.Vinyl (Rec)
 import Data.Kind (Type)
 import Data.Text (Text)
 
