@@ -1,22 +1,22 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# OPTIONS_GHC -Wall -Werror #-}
+
 module Reflex.PopState (url) where
 
-import qualified Data.Text as T
 import Data.Monoid ((<>))
-import Reflex.Class (Reflex(..),MonadHold(..),ffor)
-import Reflex.PerformEvent.Class (PerformEvent(..))
-import Reflex.TriggerEvent.Class (TriggerEvent)
-import Reflex.Dom.Builder.Immediate (wrapDomEvent)
-import Language.Javascript.JSaddle (eval,call)
 import GHCJS.DOM (currentWindowUnchecked)
-import GHCJS.DOM.Types (MonadJSM,liftJSM,ToJSVal(..))
 import GHCJS.DOM.EventM (on)
+import GHCJS.DOM.Location (getPathname,getSearch)
+import GHCJS.DOM.Types (MonadJSM,liftJSM,ToJSVal(..))
 import GHCJS.DOM.Window (getLocation)
 import GHCJS.DOM.WindowEventHandlers (popState)
-import GHCJS.DOM.Location (getPathname,getSearch)
+import Language.Javascript.JSaddle (eval,call)
+import Reflex.Class (Reflex(..),MonadHold(..),ffor)
+import Reflex.Dom.Builder.Immediate (wrapDomEvent)
+import Reflex.PerformEvent.Class (PerformEvent(..))
+import Reflex.TriggerEvent.Class (TriggerEvent)
 import Trasa.Core (Url,decodeUrl,encodeUrl)
+import qualified Data.Text as T
 
 getPopState :: (Reflex t, TriggerEvent t m, MonadJSM m) => m (Event t Url)
 getPopState = do
