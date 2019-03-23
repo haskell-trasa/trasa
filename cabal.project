@@ -1,4 +1,0 @@
-packages: ./trasa
-          ./trasa-client
-          ./trasa-server
-          ./trasa-reflex
