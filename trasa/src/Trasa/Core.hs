@@ -149,8 +149,8 @@ import qualified Network.HTTP.Media.Accept as N
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Semigroup as SG
 import Data.HashMap.Strict (HashMap)
-import Data.Vinyl (Rec(..),rmap,rtraverse)
-import Data.Vinyl.TypeLevel (type (++))
+import qualified Topaz.Rec as Topaz
+import Topaz.Types (Rec(..), type (++))
 
 import Trasa.Method
 import Trasa.Url
@@ -251,15 +251,15 @@ list :: T.Text -> cpf query -> Query cpf (List query)
 list = QueryList
 
 qend :: Rec (Query qpf) '[]
-qend = RNil
+qend = RecNil
 
 infixr 7 .&
 
 (.&) :: Query qpf q -> Rec (Query qpf) qs -> Rec (Query qpf) (q ': qs)
-(.&) = (:&)
+(.&) = RecCons
 
 mapQuery :: (forall x. f x -> g x) -> Rec (Query f) qs -> Rec (Query g) qs
-mapQuery eta = rmap $ \case
+mapQuery eta = Topaz.map $ \case
   QueryFlag key -> QueryFlag key
   QueryOptional key query -> QueryOptional key (eta query)
   QueryList key query -> QueryList key (eta query)
@@ -457,22 +457,22 @@ encodePieces pathEncoding queryEncoding path querys =
       .  Path CaptureEncoding caps
       -> Rec Identity caps
       -> [T.Text]
-    encodePath PathNil RNil = []
+    encodePath PathNil RecNil = []
     encodePath (PathConsMatch str ps) xs = str : encodePath ps xs
-    encodePath (PathConsCapture (CaptureEncoding enc) ps) (Identity x :& xs) = enc x : encodePath ps xs
+    encodePath (PathConsCapture (CaptureEncoding enc) ps) (Identity x `RecCons` xs) = enc x : encodePath ps xs
     encodeQueries
       :: forall qrys
       .  Rec (Query CaptureEncoding) qrys
       -> Rec Parameter qrys
       -> HM.HashMap T.Text QueryParam
-    encodeQueries RNil RNil = HM.empty
-    encodeQueries (QueryFlag key :& encs) (ParameterFlag on :& qs) =
+    encodeQueries RecNil RecNil = HM.empty
+    encodeQueries (QueryFlag key `RecCons` encs) (ParameterFlag on `RecCons` qs) =
       if on then HM.insert key QueryParamFlag rest else rest
       where rest = encodeQueries encs qs
-    encodeQueries (QueryOptional key (CaptureEncoding enc) :& encs) (ParameterOptional mval :& qs) =
+    encodeQueries (QueryOptional key (CaptureEncoding enc) `RecCons` encs) (ParameterOptional mval `RecCons` qs) =
       maybe rest (\val -> HM.insert key (QueryParamSingle (enc val)) rest) mval
       where rest = encodeQueries encs qs
-    encodeQueries (QueryList key (CaptureEncoding enc) :& encs) (ParameterList vals :& qs) =
+    encodeQueries (QueryList key (CaptureEncoding enc) `RecCons` encs) (ParameterList vals `RecCons` qs) =
        HM.insert key (QueryParamList (fmap enc vals)) (encodeQueries encs qs)
 
 -- | Only useful to implement packages like 'trasa-server'
@@ -557,7 +557,7 @@ parsePathWith (Router r0) method pieces0 =
        in res1 ++ res2
 
 parseQueryWith :: Rec (Query CaptureDecoding) querys -> QueryString -> Either TrasaErr (Rec Parameter querys)
-parseQueryWith decoding (QueryString querys) = rtraverse param decoding
+parseQueryWith decoding (QueryString querys) = Topaz.traverse param decoding
   where
     param :: forall qry. Query CaptureDecoding qry -> Either TrasaErr (Parameter qry)
     param = \case
@@ -579,11 +579,11 @@ decodeCaptureVector ::
      IxedRec CaptureDecoding n xs
   -> Vec n T.Text
   -> Maybe (Rec Identity xs)
-decodeCaptureVector IxedRecNil VecNil = Just RNil
+decodeCaptureVector IxedRecNil VecNil = Just RecNil
 decodeCaptureVector (IxedRecCons (CaptureDecoding decode) rnext) (VecCons piece vnext) = do
   val <- decode piece
   vals <- decodeCaptureVector rnext vnext
-  return (Identity val :& vals)
+  return (Identity val `RecCons` vals)
 
 type family ParamBase (param :: Param) :: Type where
   ParamBase Flag = Bool
@@ -637,16 +637,16 @@ prepareExplicit route = go (Prepared route)
      -> Rec (Query qf) qrys
      -> RequestBody rqf request
      -> Arguments caps qrys request z
-  go k PathNil RNil RequestBodyAbsent =
-    k RNil RNil RequestBodyAbsent
-  go k PathNil RNil (RequestBodyPresent _) =
-    \reqBod -> k RNil RNil (RequestBodyPresent (Identity reqBod))
-  go k PathNil (q :& qs) b =
-    \qt -> go (\caps querys reqBody -> k caps (parameter q qt :& querys) reqBody) PathNil qs b
+  go k PathNil RecNil RequestBodyAbsent =
+    k RecNil RecNil RequestBodyAbsent
+  go k PathNil RecNil (RequestBodyPresent _) =
+    \reqBod -> k RecNil RecNil (RequestBodyPresent (Identity reqBod))
+  go k PathNil (q `RecCons` qs) b =
+    \qt -> go (\caps querys reqBody -> k caps (parameter q qt `RecCons` querys) reqBody) PathNil qs b
   go k (PathConsMatch _ pnext) qs b =
     go k pnext qs b
   go k (PathConsCapture _ pnext) qs b =
-    \c -> go (\caps querys reqBod -> k (Identity c :& caps) querys reqBod) pnext qs b
+    \c -> go (\caps querys reqBod -> k (Identity c `RecCons` caps) querys reqBod) pnext qs b
   parameter :: forall param. Query qf param -> ParamBase param -> Parameter param
   parameter (QueryFlag _) b = ParameterFlag b
   parameter (QueryOptional _ _) m = ParameterOptional m
@@ -667,10 +667,10 @@ handler = go
     -> RequestBody Identity request
     -> Arguments caps qrys request x
     -> x
-  go RNil RNil RequestBodyAbsent f = f
-  go RNil RNil (RequestBodyPresent (Identity b)) f = f b
-  go RNil (q :& qs) b f = go RNil qs b (f (demoteParameter q))
-  go (Identity c :& cs) qs b f = go cs qs b (f c)
+  go RecNil RecNil RequestBodyAbsent f = f
+  go RecNil RecNil (RequestBodyPresent (Identity b)) f = f b
+  go RecNil (q `RecCons` qs) b f = go RecNil qs b (f (demoteParameter q))
+  go (Identity c `RecCons` cs) qs b f = go cs qs b (f c)
 
 -- | A route with all types hidden: the captures, the request body,
 --   and the response body. This is needed so that users can
@@ -782,8 +782,8 @@ data HideIx :: (Nat -> k -> Type) -> k -> Type where
   HideIx :: !(f n a) -> HideIx f a
 
 -- toIxedRec :: Rec f xs -> HideIx (IxedRec f) xs
--- toIxedRec RNil = HideIx IxedRecNil
--- toIxedRec (r :& rs) = case toIxedRec rs of
+-- toIxedRec RecNil = HideIx IxedRecNil
+-- toIxedRec (r `RecCons` rs) = case toIxedRec rs of
 --   HideIx x -> HideIx (IxedRecCons r x)
 
 snocVec :: a -> Vec n a -> Vec ('S n) a
