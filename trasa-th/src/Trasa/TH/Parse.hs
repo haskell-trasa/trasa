@@ -7,38 +7,41 @@ import Data.Bifunctor (first)
 import Language.Haskell.TH (Name,mkName)
 import Control.Applicative ((<|>))
 import Control.Monad (void)
+import Data.Void (Void)
 import qualified Text.Megaparsec as MP
+import qualified Text.Megaparsec.Char.Lexer as L
 
 import Trasa.TH.Types
 import Trasa.TH.Lexer
 
 import Debug.Trace
 
-type Parser = MP.Parsec MP.Dec Stream
+type Parser = MP.Parsec (MP.ErrorFancy Void) Stream
 
 wrongToken :: a -> S.Set (MP.ErrorItem a)
 wrongToken t = S.singleton (MP.Tokens (t NE.:| []))
 
 space :: Parser ()
-space = flip MP.token Nothing $ \case
-  LexemeSpace _ -> Right ()
-  other -> Left (wrongToken other,wrongToken (LexemeSpace 0),S.empty)
+space = flip MP.token (wrongToken $ LexemeSpace 0) $ \case
+  LexemeSpace _ -> Just ()
+  other -> Nothing
 
 optionalSpace :: Parser ()
 optionalSpace = void (MP.optional space)
 
 string :: Parser String
-string = flip MP.token Nothing $ \case
-  LexemeString _ str -> Right str
-  other -> Left (wrongToken other,wrongToken (LexemeString 0 ""),S.empty)
+string = flip MP.token (wrongToken (LexemeString 0 "")) $ \case
+  LexemeString _ str -> Just str
+  other -> Nothing
 
 name :: Parser Name
 name = fmap mkName string
 
 match :: Lexeme -> Parser ()
-match lexeme = flip MP.token Nothing $ \other -> case lexeme == other of
-  True -> Right ()
-  False -> Left (wrongToken other,wrongToken lexeme,S.empty)
+match lexeme = flip MP.token (wrongToken lexeme) $ \other -> 
+  if lexeme == other
+  then Just ()
+  else Nothing
 
 matchChar :: ReservedChar -> Parser ()
 matchChar = match . LexemeChar
@@ -120,5 +123,5 @@ routesRep = do
 
 parseRoutesRep :: String -> Either String (RoutesRep Name)
 parseRoutesRep str = do
-  tokens <- first MP.parseErrorPretty (MP.parse stream "" str)
-  first MP.parseErrorPretty (MP.parse routesRep "" (traceShowId tokens))
+  tokens <- first MP.errorBundlePretty (MP.parse stream "" str)
+  first MP.errorBundlePretty (MP.parse routesRep "" (traceShowId tokens))
