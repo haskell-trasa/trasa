@@ -1,26 +1,25 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# OPTIONS_GHC -Wall -Werror#-}
+
 module Main where
 
-import Data.Vinyl (Rec(..))
-import Data.Functor.Identity (Identity(..))
-
-import Trasa.Core
-import Trasa.Server
-
-import qualified Data.Map.Strict as M
+import Common
 import Control.Concurrent.STM
-import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Except (throwError)
-import qualified Network.HTTP.Types.Status as S
+import Control.Monad.IO.Class (liftIO)
+import Data.Functor.Identity (Identity(..))
 import Network.Wai (Application)
 import Network.Wai.Handler.Warp (run)
 import Network.Wai.Middleware.RequestLogger (logStdoutDev)
-
-import Common
+import Topaz.Rec (Rec(..))
+import Trasa.Core
+import Trasa.Server
+import qualified Data.Map.Strict as M
+import qualified Network.HTTP.Types.Status as S
 
 routes
   :: forall cs qs rq rp
@@ -72,16 +71,11 @@ handleViewAllR database limit = liftIO . atomically $ do
   (return . fmap (uncurry Keyed) . maybe id take limit . M.toList) m
 
 router :: Router Route
-router = routerWith
-  (metaMethod . meta)
-  (mapPath (CaptureDecoding . captureCodecDecode) . metaPath . meta)
-  allRoutes
+router = routerWith (mapMeta captureDecoding captureDecoding id id . meta) allRoutes
 
 application :: TVar (M.Map Key Person) -> Application
 application database = serveWith
-  (mapQuery captureCodecToCaptureDecoding . metaQuery . meta)
-  (mapRequestBody (one . bodyCodecToBodyDecoding) . metaRequestBody . meta)
-  (mapResponseBody (one . bodyCodecToBodyEncoding) . metaResponseBody . meta)
+  (metaCodecToMetaServer . meta)
   (routes database)
   router
 

@@ -38,7 +38,7 @@ executable backend
     , http-types >= 0.9 && < 0.13
     , mtl == 2.2.*
     , quantification == 0.5.0
-    , stm == 2.4.*
+    , stm >= 2.4 && < 2.6
     , trasa == 0.4
     , trasa-server == 0.4
     , wai == 3.2.*
