@@ -1,37 +1,51 @@
-name: trasa-reflex
-version: 0.4.0
-synopsis: Reactive Type Safe Routing
-license: MIT
-license-file: LICENSE
-author: Kyle McKean
-maintainer: mckean.kylej@gmail.com
-copyright: @2017 Kyle McKean
-category: Text
-build-type: Simple
-extra-source-files: ChangeLog.md
-cabal-version: >=1.10
-description: Reflex-frp integration for trasa
+cabal-version: 2.2
+name:
+  trasa-reflex
+version:
+  0.4
+synopsis:
+  Reactive Type-Safe Web Routing
+description:
+  Reflex-FRP integration for trasa
+homepage:
+  https://github.com/haskell-trasa/trasa
+author:
+  Andrew Martin
+  Kyle McKean
+license:
+  MIT
+license-file:
+  LICENSE
+copyright:
+  © 2017-2019 Andrew Martin
+  © 2017-2019 Kyle McKean
+category:
+  Web, FRP
+build-type:
+  Simple
 
 library
+  hs-source-dirs:
+    src
   exposed-modules:
-      Reflex.PopState
-    , Trasa.Reflex
-    , Trasa.Reflex.Implicit
+    Reflex.PopState
+    Trasa.Reflex
+    Trasa.Reflex.Implicit
   build-depends:
-      base >= 4.9 && < 5
+    , base >= 4.9 && < 5
     , bytestring == 0.10.*
     , text == 1.2.*
     , http-types >= 0.9
     , http-media >= 0.6 && < 0.8
-    , containers == 0.5.*
+    , containers >= 0.5 && < 0.7
     , jsaddle > 0.8 && < 0.10
     , ghcjs-dom > 0.7 && < 0.11
     , reflex == 0.5.*
     , reflex-dom == 0.4.*
     , trasa == 0.4.*
-    , quantification
-  hs-source-dirs:      src
-  default-language:    Haskell2010
+    , quantification == 0.5.0
+  default-language:
+    Haskell2010
 
 source-repository head
   type:     git
