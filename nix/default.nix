@@ -5,7 +5,7 @@
 }:
 
 with rec {
-  reflex-platform = import ./reflex-platform.nix { inherit profiling haddocks; };
+  trasa-overlay = import ./trasa-overlay.nix { inherit profiling haddocks; };
 
   pkgs = import nixpkgs {
     config = {
@@ -13,7 +13,7 @@ with rec {
         "webkitgtk-2.4.11"
       ];
     };
-    overlays = [ reflex-platform ];
+    overlays = [ trasa-overlay ];
   };
 
   make = name: pkgs.haskell.packages.${compiler}.${name};
