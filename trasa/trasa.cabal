@@ -1,24 +1,32 @@
-name: trasa
-version: 0.3
-synopsis: Type Safe Web Routing
-homepage: https://github.com/haskell-trasa/trasa#readme
-license: BSD3
-license-file: LICENSE
-author: Kyle McKean
-maintainer: mckean.kylej@gmail.com
-copyright: 2017 Kyle McKean
-category: Web
-build-type: Simple
-cabal-version: >=1.10
+cabal-version: 2.2
+name:
+  trasa
+version:
+  0.4
+synopsis:
+  Type Safe Web Routing
 description:
   This library is a solution for http-based routing and dispatch. Its
   goals are similar to the goals of `servant`, however, `trasa` relies
   on very different mechanisms to accomplish those goals. All typeclasses
   in this library are optional. All of the real work is accomplished with GADTs, 
   universal quantification, and plain old haskell data types.
+homepage:
+  https://github.com/haskell-trasa/trasa
+author:
+  Andrew Martin
+  Kyle McKean
+copyright:
+  © 2017-2019 Andrew Martin
+  © 2017-2019 Kyle McKean
+category:
+  Web
+build-type:
+  Simple
 
 library
-  hs-source-dirs:      src
+  hs-source-dirs:
+    src
   exposed-modules:
     Trasa.Method
     Trasa.Url
@@ -26,37 +34,38 @@ library
     Trasa.Error
     Trasa.Core
     Trasa.Core.Implicit
-    Trasa.Tutorial
+--    Trasa.Tutorial
   build-depends:
-      base >= 4.7 && < 5
-    , bytestring == 0.10.*
+    , base >= 4.7 && < 5
     , binary == 0.8.*
-    , text == 1.2.*
-    , vinyl >= 0.5 && < 0.11
+    , bytestring == 0.10.*
     , hashable == 1.2.*
-    , http-types >= 0.9
     , http-media >= 0.6 && < 0.8
+    , http-types >= 0.9
+    , quantification == 0.5.0
+    , text == 1.2.*
     , unordered-containers >= 0.2 && < 0.3
-    , quantification
-  default-language:    Haskell2010
+  default-language:
+    Haskell2010
 
-test-suite test
-  type: exitcode-stdio-1.0
-  hs-source-dirs: test
-  main-is: Main.hs
-  build-depends: 
-      base
-    , trasa
-    , tasty
-    , tasty-quickcheck
-    , tasty-hunit
-    , bytestring
-    , text
-    , vinyl
-    , quantification
-    , doctest
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N
-  default-language: Haskell2010
+--
+--test-suite test
+--  type: exitcode-stdio-1.0
+--  hs-source-dirs: test
+--  main-is: Main.hs
+--  build-depends: 
+--      base
+--    , trasa
+--    , tasty
+--    , tasty-quickcheck
+--    , tasty-hunit
+--    , bytestring
+--    , text
+--    , vinyl
+--    , quantification
+--    , doctest
+--  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+--  default-language: Haskell2010
 
 source-repository head
   type:     git
