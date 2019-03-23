@@ -173,6 +173,7 @@ one = Many . pure
 mapMany :: (forall x. f x -> g x) -> Many f a -> Many g a
 mapMany eta (Many m) = Many (fmap eta m)
 
+-- | the type of the HTTP message body (json, text, etc) <https://en.wikipedia.org/wiki/HTTP_message_body>
 data Bodiedness = forall a. Body a | Bodyless
 
 data RequestBody :: (Type -> Type) -> Bodiedness -> Type where
@@ -202,8 +203,9 @@ data Path :: (Type -> Type) -> [Type] -> Type where
   PathConsCapture :: !(cap a) -> !(Path cap as) -> Path cap (a ': as)
   PathConsMatch :: !T.Text -> !(Path cap as) -> Path cap as
 
+-- | flipped ($), useful for constructing routes. e.g.
+-- >  match "add" ./ capture int ./ capture int ./ end
 infixr 7 ./
-
 (./) :: (a -> b) -> a -> b
 (./) f a = f a
 
