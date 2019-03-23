@@ -1,53 +1,67 @@
-name: trasa-server
-version: 0.3
-synopsis: Type safe web server
-homepage: https://github.com/haskell-trasa/trasa#readme
-license: BSD3
-license-file: LICENSE
-author: Kyle McKean
-maintainer: mckean.kylej@gmail.com
-copyright: 2017 Kyle McKean
-category: Web
-build-type: Simple
-cabal-version: >=1.10
-description: WAI integration for trasa
+cabal-version: 2.2
+name:
+  trasa-server
+version:
+  0.4
+synopsis:
+  Type safe web server
+description:
+  WAI integration for trasa
+homepage:
+  https://github.com/haskell-trasa/trasa
+author:
+  Andrew Martin
+  Kyle McKean
+license:
+  MIT
+license-file:
+  LICENSE
+copyright:
+  © 2017-2019 Andrew Martin
+  © 2017-2019 Kyle McKean
+category:
+  Web
+build-type:
+  Simple
 
 library
-  hs-source-dirs: src
+  hs-source-dirs:
+    src
   exposed-modules:
       Trasa.Server
     , Trasa.Server.Implicit
   build-depends:
-      base >= 4.7 && < 5
+    , base >= 4.9 && < 5
     , bytestring == 0.10.*
-    , text == 1.2.*
-    , wai == 3.2.*
-    , http-types >= 0.9 
-    , http-media >= 0.6 && < 0.8
     , case-insensitive == 1.2.*
-    , containers == 0.5.*
+    , containers >= 0.5 && < 0.7
+    , http-media >= 0.6 && < 0.8
+    , http-types >= 0.9 
     , mtl == 2.2.*
+    , text == 1.2.*
     , trasa == 0.4.*
-  default-language: Haskell2010
+    , wai == 3.2.*
+  default-language:
+    Haskell2010
 
-test-suite test
-  type: exitcode-stdio-1.0
-  hs-source-dirs: test
-  main-is: Main.hs
-  build-depends: 
-      base
-    , trasa
-    , trasa-server
-    , tasty
-    , tasty-quickcheck
-    , tasty-hunit
-    , bytestring
-    , text
-    , quantification
-    , doctest
-    , warp
-    , http-client
-  default-language: Haskell2010
+--test-suite test
+--  type: exitcode-stdio-1.0
+--  hs-source-dirs: test
+--  main-is: Main.hs
+--  build-depends: 
+--      base
+--    , trasa
+--    , trasa-server
+--    , tasty
+--    , tasty-quickcheck
+--    , tasty-hunit
+--    , bytestring
+--    , text
+--    , quantification
+--    , doctest
+--    , warp
+--    , http-client
+--  default-language: Haskell2010
 
 source-repository head
   type:     git
