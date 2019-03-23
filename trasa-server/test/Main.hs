@@ -13,11 +13,11 @@ import Trasa.Core.Implicit
 import qualified Trasa.Method as M
 import Trasa.Server
 import Trasa.Server.Implicit
-import Data.Vinyl
 import Data.Functor.Identity
 import Data.Kind (Type)
 import Text.Read (readMaybe)
 import Network.Wai.Handler.Warp (withApplication)
+import Topaz.Types (Rec(..))
 import qualified Data.Text as T
 import qualified Data.ByteString.Lazy.Char8 as LBSC
 import qualified Network.HTTP.Client as HC
