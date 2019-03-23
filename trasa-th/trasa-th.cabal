@@ -1,35 +1,58 @@
-name:                trasa-th
-version:             0.1
-synopsis:            Template haskell to generate trasa routes
-license:             MIT
-license-file:        LICENSE
-author:              Kyle McKean
-maintainer:          mckean.kylej@gmail.com
-copyright:           @2017 Kyle McKean
-category:            Web
-build-type:          Simple
-cabal-version:       >=1.10
+cabal-version: 2.2
+name:
+  trasa-th
+version:
+  0.4
+synopsis:
+  Template Haskell to generate trasa routes
+description:
+  Trasa routes can sometimes be tedious to write out by hand, so `trasa-th`
+  offers some `-XTemplateHaskell`-based help to generate your `Route`
+  GADT.
+homepage:
+  https://github.com/haskell-trasa/trasa
+author:
+  Andrew Martin
+  Kyle McKean
+maintainer:
+  Andrew Martin <andrew.thaddeus@gmail.com>
+  Kyle McKean <mckean.kylej@gmail.com>
+  chessai <chessai1996@gmail.com>
+license:
+  MIT
+license-file:
+  LICENSE
+copyright:
+  © 2017-2019 Andrew Martin
+  © 2017-2019 Kyle McKean
+category:
+  Web
+build-type:
+  Simple
 
 library
-  exposed-modules:     Trasa.TH.Types
-                     , Trasa.TH.Lexer
-                     , Trasa.TH.Parse
-                     , Trasa.TH
-  build-depends:       base >=4.9 && < 5.0
-                     , template-haskell >= 2.12 && <= 2.15
-                     , containers >= 0.5
-                     , megaparsec == 7.*
-                     , trasa == 0.4.*
-  hs-source-dirs:      src
-  default-language:    Haskell2010
+  hs-source-dirs:
+    src
+  exposed-modules:
+    Trasa.TH
+    Trasa.TH.Lexer
+    Trasa.TH.Parse
+    Trasa.TH.Types
+  build-depends:
+    , base >=4.9 && < 5.0
+    , template-haskell >= 2.12 && < 2.15
+    , containers >= 0.5 && < 0.7
+    , megaparsec == 7.*
+    , trasa == 0.4
+  default-language:
+    Haskell2010
 
 test-suite test
-  type:                exitcode-stdio-1.0
-  hs-source-dirs:      test
-  main-is:             Main.hs
-  build-depends:       base
-                     , trasa
-                     , trasa-th
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
-  default-language:    Haskell2010
-
+ type:                exitcode-stdio-1.0
+ hs-source-dirs:      test
+ main-is:             Main.hs
+ build-depends:       base
+                    , trasa
+                    , trasa-th
+ ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+ default-language:    Haskell2010

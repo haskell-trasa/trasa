@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
-{-| Users of this library should a data type representing all possible
+{-| Users of this library should create a data type representing all possible
     routes available in a web application. It is recommended that
     this type be named @Route@, but this is not required.
 -}
@@ -10,10 +10,10 @@ module Trasa.Tutorial
     -- $dispatchandrouting
   ) where
 
-import Trasa.Core
-import qualified Trasa.Method as M
 import Data.Kind (Type)
 import Data.Text (Text)
+import Trasa.Core
+import qualified Trasa.Method as M
 
 -- $setup
 -- >>> :set -XDataKinds

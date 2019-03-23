@@ -1,19 +1,17 @@
 cabal-version: 2.2
 name:
-  frontend
+  trasa-tutorial
 version:
-  0.1
+  0.4
 synopsis:
-  frontend for the trasa example
+  Type-Safe Web Routing Tutorial
+description:
+  Tutorial module/docs for trasa
 homepage:
   https://github.com/haskell-trasa/trasa
 author:
   Andrew Martin
   Kyle McKean
-maintainer:
-  Andrew Martin <andrew.thaddeus@gmail.com>
-  Kyle McKean <mckean.kylej@gmail.com>
-  chessai <chessai1996@gmail.com>
 license:
   MIT
 license-file:
@@ -26,15 +24,18 @@ category:
 build-type:
   Simple
 
-executable frontend
+library
   hs-source-dirs:
-    app
-  main-is:
-    Main.hs
+    src
+  exposed-modules:
+    Trasa.Tutorial
   build-depends:
     , base >= 4.9 && < 5
-    , file-embed == 0.0.*
-    , reflex-dom == 0.4.*
-    , common
+    , text == 1.2.*
+    , trasa == 0.4.*
   default-language:
     Haskell2010
+
+source-repository head
+  type:     git
+  location: https://github.com/haskell-trasa/trasa

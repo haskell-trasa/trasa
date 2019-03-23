@@ -8,31 +8,25 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
+import Data.Exists
+import Data.Functor.Identity
+import Data.Kind (Type)
+import Data.Monoid
+import Test.Tasty
+import Test.Tasty.HUnit
+import Test.Tasty.QuickCheck as QC
 import Text.Read (readMaybe)
+import Topaz.Rec
 import Trasa.Core
 import Trasa.Core.Implicit
-import qualified Trasa.Method as M
-import Data.Vinyl
-import Data.Kind (Type)
-
 import qualified Data.ByteString.Lazy.Char8 as LBSC
 import qualified Data.Text as T
-
-import Test.Tasty
-import Test.Tasty.QuickCheck as QC
-import Test.Tasty.HUnit
-import Data.Functor.Identity
-import Data.Monoid
-
-import Test.DocTest (doctest)
+import qualified Trasa.Method as M
 
 main :: IO ()
 main = do
-  putStrLn "\nRUNNING DOCTESTS"
-  doctest
-    [ "src"
-    ]
   putStrLn "\nPRETTY ROUTER"
   putStrLn (prettyRouter (router @Route))
   putStrLn "\nRUNNING OTHER TESTS"
@@ -148,11 +142,33 @@ roundtripLinkParse c@(Concealed route captures querys reqBody) =
   ==>
   Right c == parseUrl (encodeUrl (link (Prepared route captures querys reqBody)))
 
+{-
+-- | Includes the route, path, query parameters, and request body.
+data Prepared :: ([Type] -> [Param] -> Bodiedness -> Type -> Type) -> Type -> Type where
+  Prepared ::
+       !(route captures querys request response)
+    -> !(Rec Identity captures)
+    -> !(Rec Parameter querys)
+    -> !(RequestBody Identity request)
+    -> Prepared route response
+
+-- | Only needed to implement 'parseWith'. Most users do not need this.
+--   If you need to create a route hierarchy to provide breadcrumbs,
+--   then you will need this.
+data Concealed :: ([Type] -> [Param] -> Bodiedness -> Type -> Type) -> Type where
+  Concealed ::
+       !(route captures querys request response)
+    -> !(Rec Identity captures)
+    -> !(Rec Parameter querys)
+    -> !(RequestBody Identity request)
+    -> Concealed route
+-}
+
 -- This instance is defined only so that the test suite can do
 -- its job. It not not neccessary or recommended to write this
 -- instance in production code.
 instance Eq (Concealed Route) where
-  Concealed rt1 ps1 qs1 rq1 == Concealed rt2 ps2 qs2 rq2 = case (rt1,rt2) of
+  Concealed rt1 (ps1 :: _) qs1 rq1 == Concealed rt2 ps2 qs2 rq2 = case (rt1,rt2) of
     (AdditionR,AdditionR) -> ps1 == ps2 && qs1 == qs2 && rq1 == rq2
     (IdentityR,IdentityR) -> ps1 == ps2 && qs1 == qs2 && rq1 == rq2
     (LeftPadR,LeftPadR) -> case (rq1,rq2) of

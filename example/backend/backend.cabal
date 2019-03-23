@@ -1,28 +1,48 @@
-name:                backend
-version:             0.1.0.0
-synopsis:            Backend for the trasa example
-license:             MIT
-license-file:        LICENSE
-author:              Kyle McKean
-maintainer:          mckean.kylej@gmail.com
-copyright:           @2017 Kyle McKean
-category:            Network
-build-type:          Simple
-cabal-version:       >=1.10
+cabal-version: 2.2
+name:
+  backend
+version:
+  0.1
+synopsis:
+  backend for the trasa example
+homepage:
+  https://github.com/haskell-trasa/trasa
+author:
+  Andrew Martin
+  Kyle McKean
+maintainer:
+  Andrew Martin <andrew.thaddeus@gmail.com>
+  Kyle McKean <mckean.kylej@gmail.com>
+  chessai <chessai1996@gmail.com>
+license:
+  MIT
+license-file:
+  LICENSE
+copyright:
+  © 2017-2019 Andrew Martin
+  © 2017-2019 Kyle McKean
+category:
+  Web
+build-type:
+  Simple
 
 executable backend
-  main-is:             Main.hs
-  build-depends:       base >=4.9 && <5.0
-                     , vinyl >= 0.5 && < 0.11
-                     , containers == 0.5.*
-                     , mtl == 2.2.*
-                     , stm == 2.4.*
-                     , http-types >= 0.9 && <= 0.12
-                     , wai == 3.2.*
-                     , wai-extra == 3.0.*
-                     , warp == 3.2.*
-                     , trasa
-                     , trasa-server
-                     , common
-  hs-source-dirs:      app
-  default-language:    Haskell2010
+  hs-source-dirs:
+    app
+  main-is:
+    Main.hs
+  build-depends:
+    , base >=4.9 && <5.0
+    , common
+    , containers >= 0.5 && < 0.7
+    , http-types >= 0.9 && < 0.13
+    , mtl == 2.2.*
+    , quantification == 0.5.0
+    , stm == 2.4.*
+    , trasa == 0.4
+    , trasa-server == 0.4
+    , wai == 3.2.*
+    , wai-extra == 3.0.*
+    , warp == 3.2.*
+  default-language:
+    Haskell2010
