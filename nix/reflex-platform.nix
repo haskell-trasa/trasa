@@ -105,34 +105,81 @@ with rec {
     trasa = hself.callC2N {
       name = "trasa";
       path = ../trasa;
-      apply = [ ];
+      apply = [ ]
+        ++ ( if profiling
+             then [ hlib.enableLibraryProfiling hlib.enableExecutableProfiling ]
+             else [ hlib.disableLibraryProfiling hlib.disableExecutableProfiling ]
+           )
+        ++ ( if haddocks
+             then [ hlib.doHaddock ]
+             else [ hlib.dontHaddock ]
+           ); 
     };
     trasa-client = hself.callC2N {
       name = "trasa-client";
       path = ../trasa-client;
-      apply = [ ];
+      apply = [ ]
+        ++ ( if profiling
+             then [ hlib.enableLibraryProfiling hlib.enableExecutableProfiling ]
+             else [ hlib.disableLibraryProfiling hlib.disableExecutableProfiling ]
+           )
+        ++ ( if haddocks
+             then [ hlib.doHaddock ]
+             else [ hlib.dontHaddock ]
+           );   
     };
     trasa-server = hself.callC2N {
       name = "trasa-server";
       path = ../trasa-server;
-      apply = [ ];
+      apply = [ ]
+        ++ ( if profiling
+             then [ hlib.enableLibraryProfiling hlib.enableExecutableProfiling ]
+             else [ hlib.disableLibraryProfiling hlib.disableExecutableProfiling ]
+           )
+        ++ ( if haddocks
+             then [ hlib.doHaddock ]
+             else [ hlib.dontHaddock ]
+           );   
     };
     trasa-reflex = hself.callC2N {
       name = "trasa-reflex";
       path = ../trasa-reflex;
-      apply = [ ];
+      apply = [ ]
+        ++ ( if profiling
+             then [ hlib.enableLibraryProfiling hlib.enableExecutableProfiling ]
+             else [ hlib.disableLibraryProfiling hlib.disableExecutableProfiling ]
+           )
+        ++ ( if haddocks
+             then [ hlib.doHaddock ]
+             else [ hlib.dontHaddock ]
+           ); 
     };
     trasa-th = hself.callC2N {
       name = "trasa-th";
       path = ../trasa-th;
-      apply = [ ];
+      apply = [ ]
+        ++ ( if profiling
+             then [ hlib.enableLibraryProfiling hlib.enableExecutableProfiling ]
+             else [ hlib.disableLibraryProfiling hlib.disableExecutableProfiling ]
+           )
+        ++ ( if haddocks
+             then [ hlib.doHaddock ]
+             else [ hlib.dontHaddock ]
+           );
     };
-   trasa-tutorial = hself.callC2N {
+    trasa-tutorial = hself.callC2N {
       name = "trasa-tutorial";
       path = ../trasa-tutorial;
-      apply = [ ];
+      apply = [ ]
+        ++ ( if profiling
+             then [ hlib.enableLibraryProfiling hlib.enableExecutableProfiling ]
+             else [ hlib.disableLibraryProfiling hlib.disableExecutableProfiling ]
+           )
+        ++ ( if haddocks
+             then [ hlib.doHaddock ]
+             else [ hlib.dontHaddock ]
+           );
     };
-   
   };
 
   composeOverlayList = lib.foldl' lib.composeExtensions (_: _: {});

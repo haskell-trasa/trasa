@@ -1,6 +1,6 @@
 { nixpkgs ? import ./nixpkgs.nix {} # nix package set we're using
 , compiler ? "ghc863"
-, profiling ? false # Whether or not to enable library profiling
+, profiling ? true # Whether or not to enable library profiling
 , haddocks  ? true # Whether or not to enable haddock building
 }:
 
