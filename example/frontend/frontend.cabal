@@ -34,7 +34,7 @@ executable frontend
   build-depends:
     , base >= 4.9 && < 5
     , file-embed == 0.0.*
-    , reflex-dom == 0.4.*
+    , reflex-dom == 0.5.*
     , common
   default-language:
     Haskell2010

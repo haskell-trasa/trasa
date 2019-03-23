@@ -181,6 +181,72 @@ with rec {
            );
     };
 
+    reflex = hself.callC2N {
+      name = "reflex";
+      rawPath = super.fetchFromGitHub {
+        owner = "reflex-frp";
+        repo = "reflex";
+        rev = "a083a7664a1bcc881e1b9b2bb95413503a96dea4";
+        sha256 = "05221dicjckpq43alp64h3sq1bnxv6wm1qax8awisablr6q8kqy3";
+      };
+      apply = [ 
+        hlib.doJailbreak
+        hlib.dontCheck
+        hlib.dontBenchmark
+        (drv: hlib.disableCabalFlag drv "use-template-haskell") 
+      ];
+    };
+
+    reflex-dom-core = hself.callC2N {
+      name = "reflex-dom-core";
+      rawPath = super.fetchFromGitHub {
+        owner = "chessai";
+        repo = "reflex-dom";
+        rev = "f5bd9df60f41651a63b80e0b863be31b72475fd3";
+        sha256 = "1nvpp77ba7xwrs8nmrvcmc6v1knyqxjsznw8n7b8mqf4xbcqf9kk";
+      };
+      relativePath = "reflex-dom-core";
+      apply = [ hlib.dontCheck hlib.dontBenchmark hlib.doJailbreak ];
+    };
+
+    reflex-dom = hself.callC2N {
+      name = "reflex-dom";
+      rawPath = super.fetchFromGitHub {
+        owner = "chessai";
+        repo = "reflex-dom";
+        rev = "f5bd9df60f41651a63b80e0b863be31b72475fd3";
+        sha256 = "1nvpp77ba7xwrs8nmrvcmc6v1knyqxjsznw8n7b8mqf4xbcqf9kk";
+      };
+      relativePath = "reflex-dom";
+      apply = [ hlib.dontCheck hlib.dontBenchmark hlib.doJailbreak ];
+    };
+
+    jsaddle-webkit2gtk = hself.callC2N {
+      name = "jsaddle-webkit2gtk";
+      rawPath = super.fetchFromGitHub {
+        owner = "chessai";
+        repo = "jsaddle";
+        rev = "77f07643d92486c8d02abac41db25efc0047b227";
+        sha256 = "19d7nqdqj2cphiz65vsfk2xwlim5z0ch6p2l03h6nia66l06y7yr";
+      };
+      relativePath = "jsaddle-webkit2gtk";
+      apply = [ hlib.dontCheck hlib.dontBenchmark hlib.doJailbreak ];
+    };
+
+    haskell-gi-overloading = hsuper.haskell-gi-overloading_0_0;
+
+    chrome-test-utils = hself.callC2N {
+      name = "chrome-test-utils";
+      rawPath = super.fetchFromGitHub {
+        owner = "reflex-frp";
+        repo = "reflex-dom";
+        rev = "646a98aa0caa9d392f6a1e3bc929851883f081a1";
+        sha256 = "0259f0df8dyfrlrv5lxj49n0phpwxly0lqjz35s7chcdxv3m1fz7";
+      };
+      relativePath = "chrome-test-utils";
+      apply = [ hlib.dontCheck hlib.dontBenchmark ];
+    };
+
     # examples
     backend = hself.callC2N {
       name = "backend";
@@ -199,6 +265,27 @@ with rec {
       path = ../example/common;
       apply = [ ];
     };
+
+    # broken doctests/tests
+    comonad           = hlib.disableCabalFlag hsuper.comonad "test-doctests";
+    semigroupoids     = hlib.disableCabalFlag hsuper.semigroupoids "doctests";
+    lens              = hlib.disableCabalFlag hsuper.lens "test-doctests";
+    distributive      = hlib.dontCheck (hlib.disableCabalFlag hsuper.distributive "test-doctests");
+
+    http-types        = hlib.dontCheck hsuper.http-types;
+    silently          = hlib.dontCheck hsuper.silently;
+    unliftio          = hlib.dontCheck hsuper.unliftio;
+    conduit           = hlib.dontCheck hsuper.conduit;
+    yaml              = hlib.dontCheck hsuper.yaml;
+    extra             = hlib.dontCheck hsuper.extra;
+    half              = hlib.dontCheck hsuper.half;
+    iproute           = hlib.dontCheck hsuper.iproute;
+    aeson-compat      = hlib.dontCheck hsuper.aeson-compat;
+    tzdata            = hlib.dontCheck hsuper.tzdata;
+    tz                = hlib.dontCheck hsuper.tz;
+    time-exts         = hlib.dontCheck hsuper.time-exts;
+    double-conversion = hlib.dontCheck hsuper.double-conversion;
+
   };
 
   composeOverlayList = lib.foldl' lib.composeExtensions (_: _: {});
