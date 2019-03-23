@@ -16,6 +16,10 @@ homepage:
 author:
   Andrew Martin
   Kyle McKean
+license:
+  MIT
+license-file:
+  LICENSE
 copyright:
   © 2017-2019 Andrew Martin
   © 2017-2019 Kyle McKean
@@ -36,7 +40,7 @@ library
     Trasa.Core.Implicit
 --    Trasa.Tutorial
   build-depends:
-    , base >= 4.7 && < 5
+    , base >= 4.9 && < 5
     , binary == 0.8.*
     , bytestring == 0.10.*
     , hashable == 1.2.*
