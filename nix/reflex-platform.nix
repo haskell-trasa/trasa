@@ -102,19 +102,6 @@ with rec {
        (hself.callPackage expr args)
        (orig: { src = rawPath; })));
        
-    vinyl = hself.callC2N {
-      name = "vinyl";
-      rawPath = super.fetchFromGitHub {
-        owner  = "VinylRecords";
-        repo   = "Vinyl";
-        rev    = "70b1dd03ad77be61b86ddadc3f17dab6291b613f";
-        sha256 = "1pqajx2wvap0r7b6fh6cz5s3qbp5583nrp3fqrzvrcrm7xhgaw5d";
-      };
-      apply = [ hlib.dontCheck hlib.doJailbreak ];
-    };
-
-    http-types        = hlib.dontCheck hsuper.http-types;
-
     trasa = hself.callC2N {
       name = "trasa";
       path = ../trasa;
@@ -140,7 +127,12 @@ with rec {
       path = ../trasa-th;
       apply = [ ];
     };
-    
+   trasa-tutorial = hself.callC2N {
+      name = "trasa-tutorial";
+      path = ../trasa-tutorial;
+      apply = [ ];
+    };
+   
   };
 
   composeOverlayList = lib.foldl' lib.composeExtensions (_: _: {});

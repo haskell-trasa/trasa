@@ -23,9 +23,10 @@ with rec {
   trasa-server = make "trasa-server";
   trasa-reflex = make "trasa-reflex";
   trasa-th = make "trasa-th";
+  trasa-tutorial = make "trasa-tutorial";
 };
 
 rec {
   inherit pkgs;
-  inherit trasa trasa-client trasa-server trasa-reflex trasa-th;
+  inherit trasa trasa-client trasa-server trasa-reflex trasa-th trasa-tutorial;
 }
