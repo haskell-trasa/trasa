@@ -52,7 +52,7 @@ import Data.Text (Text)
 import Data.Map.Strict (Map)
 import Control.Applicative ((<|>))
 import Data.Proxy (Proxy(..))
-import Data.Vinyl.Core (rmap)
+import qualified Topaz.Rec as Topaz
 
 import Trasa.Core hiding (requestWith,Arguments,handler)
 
@@ -94,9 +94,9 @@ handler :: Rec Identity caps -> Rec Parameter qrys -> ResponseBody Identity resp
 handler = go
   where
     go :: Rec Identity caps -> Rec Parameter qrys -> ResponseBody Identity resp -> Arguments caps qrys resp x -> x
-    go RNil RNil (ResponseBody (Identity response)) f = f response
-    go RNil (q :& qs) respBody f = go RNil qs respBody (f (demoteParameter q))
-    go (Identity cap :& caps) qs respBody f = go caps qs respBody (f cap)
+    go RecNil RecNil (ResponseBody (Identity response)) f = f response
+    go RecNil (q `RecCons` qs) respBody f = go RecNil qs respBody (f (demoteParameter q))
+    go (Identity cap `RecCons` caps) qs respBody f = go caps qs respBody (f cap)
 
 
 
@@ -109,13 +109,13 @@ eventHandler :: forall t caps qrys resp x. Reflex t
 eventHandler caps qrys e = go (selfSubset caps) (selfSubset qrys)
   where
     go :: forall caps' qrys'. Rec (Elem caps) caps' -> Rec (Elem qrys) qrys' -> EventArguments t caps' qrys' resp x -> x
-    go RNil RNil f = f (fmap (\(Requiem _ _ theResp) -> theResp) e)
-    go RNil (qryElem :& qs) f = go RNil qs (f (fmap (\(Requiem _ qryVals _) -> case elemGet qryElem qryVals of
+    go RecNil RecNil f = f (fmap (\(Requiem _ _ theResp) -> theResp) e)
+    go RecNil (qryElem `RecCons` qs) f = go RecNil qs (f (fmap (\(Requiem _ qryVals _) -> case elemGet qryElem qryVals of
         ParameterFlag v -> v
         ParameterOptional v -> v
         ParameterList v -> v
       ) e))
-    go (capElem :& cs) qryElems f = go cs qryElems (f (fmap (\(Requiem capVals _ _) -> runIdentity (elemGet capElem capVals)) e))
+    go (capElem `RecCons` cs) qryElems f = go cs qryElems (f (fmap (\(Requiem capVals _ _) -> runIdentity (elemGet capElem capVals)) e))
 
 dynamicHandler :: forall t caps qrys resp x. Reflex t
   => Rec Proxy caps
@@ -126,25 +126,25 @@ dynamicHandler :: forall t caps qrys resp x. Reflex t
 dynamicHandler caps qrys e = go (selfSubset caps) (selfSubset qrys)
   where
     go :: forall caps' qrys'. Rec (Elem caps) caps' -> Rec (Elem qrys) qrys' -> DynamicArguments t caps' qrys' resp x -> x
-    go RNil RNil f = f (fmap (\(Requiem _ _ theResp) -> theResp) e)
-    go RNil (qryElem :& qs) f = go RNil qs (f (fmap (\(Requiem _ qryVals _) -> case elemGet qryElem qryVals of
+    go RecNil RecNil f = f (fmap (\(Requiem _ _ theResp) -> theResp) e)
+    go RecNil (qryElem `RecCons` qs) f = go RecNil qs (f (fmap (\(Requiem _ qryVals _) -> case elemGet qryElem qryVals of
         ParameterFlag v -> v
         ParameterOptional v -> v
         ParameterList v -> v
       ) e))
-    go (capElem :& cs) qryElems f = go cs qryElems (f (fmap (\(Requiem capVals _ _) -> runIdentity (elemGet capElem capVals)) e))
+    go (capElem `RecCons` cs) qryElems f = go cs qryElems (f (fmap (\(Requiem capVals _ _) -> runIdentity (elemGet capElem capVals)) e))
 
 data Elem (as :: [k]) (a :: k) where
   ElemHere :: Elem (a ': as) a
   ElemThere :: Elem as a -> Elem (b ': as) a
 
 elemGet :: Elem rs r -> Rec f rs -> f r
-elemGet ElemHere (r :& _) = r
-elemGet (ElemThere elemNext) (_ :& rs) = elemGet elemNext rs
+elemGet ElemHere (r `RecCons` _) = r
+elemGet (ElemThere elemNext) (_ `RecCons` rs) = elemGet elemNext rs
 
 selfSubset :: Rec Proxy rs -> Rec (Elem rs) rs
-selfSubset RNil = RNil
-selfSubset (Proxy :& rs) = ElemHere :& rmap ElemThere (selfSubset rs)
+selfSubset RecNil = RecNil
+selfSubset (Proxy `RecCons` rs) = ElemHere `RecCons` Topaz.map ElemThere (selfSubset rs)
 
 -- | Used when you want to perform an action for any response type
 data ResponseHandler route a = forall resp. ResponseHandler
