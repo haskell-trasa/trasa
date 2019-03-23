@@ -1,21 +1,41 @@
-name:                common
-version:             0.1.0.0
-synopsis:            Common code for the trasa example
-license:             MIT
-license-file:        LICENSE
-author:              Kyle McKean
-maintainer:          mckean.kylej@gmail.com
-copyright:           @2017 Kyle McKean
-category:            Network
-build-type:          Simple
-cabal-version:       >=1.10
+cabal-version: 2.2
+name:
+  common
+version:
+  0.1
+synopsis:
+  Common code for the trasa example's backend/frontend
+homepage:
+  https://github.com/haskell-trasa/trasa
+author:
+  Andrew Martin
+  Kyle McKean
+maintainer:
+  Andrew Martin <andrew.thaddeus@gmail.com>
+  Kyle McKean <mckean.kylej@gmail.com>
+  chessai <chessai1996@gmail.com>
+license:
+  MIT
+license-file:
+  LICENSE
+copyright:
+  © 2017-2019 Andrew Martin
+  © 2017-2019 Kyle McKean
+category:
+  Web
+build-type:
+  Simple
 
 library
-  exposed-modules:     Common
-  build-depends:       base >=4.9 && < 5.0
-                     , bytestring == 0.10.*
-                     , text == 1.2.*
-                     , vinyl >= 0.5 && < 0.9
-                     , trasa
-  hs-source-dirs:      src
-  default-language:    Haskell2010
+  hs-source-dirs:
+    src
+  exposed-modules:
+    Common
+  build-depends:
+    , base >=4.9 && < 5.0
+    , bytestring == 0.10.*
+    , text == 1.2.*
+    , quantification == 0.5.0
+    , trasa == 0.4
+  default-language:
+    Haskell2010
