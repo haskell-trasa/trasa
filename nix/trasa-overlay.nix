@@ -180,6 +180,25 @@ with rec {
              else [ hlib.dontHaddock ]
            );
     };
+
+    # examples
+    backend = hself.callC2N {
+      name = "backend";
+      path = ../example/backend;
+      apply = [ ];
+    };
+
+    frontend = hself.callC2N {
+      name = "frontend";
+      path = ../example/frontend;
+      apply = [ ];
+    };
+
+    common = hself.callC2N {
+      name = "common";
+      path = ../example/common;
+      apply = [ ];
+    };
   };
 
   composeOverlayList = lib.foldl' lib.composeExtensions (_: _: {});
