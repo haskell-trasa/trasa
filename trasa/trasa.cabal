@@ -16,6 +16,10 @@ homepage:
 author:
   Andrew Martin
   Kyle McKean
+maintainer:
+  Andrew Martin <andrew.thaddeus@gmail.com>
+  Kyle McKean <mckean.kylej@gmail.com>
+  chessai <chessai1996@gmail.com>
 license:
   MIT
 license-file:
