@@ -34,7 +34,9 @@ executable frontend
   build-depends:
     , base >= 4.9 && < 5
     , file-embed == 0.0.*
-    , reflex-dom == 0.5.*
     , common
+    , http-client
+    , trasa == 0.4
+    , trasa-client == 0.4
   default-language:
     Haskell2010
