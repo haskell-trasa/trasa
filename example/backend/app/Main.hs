@@ -79,6 +79,8 @@ application database = serveWith
   (routes database)
   router
 
+-- | Example usage:
+-- >  curl -v -H 'Content-Type:text/haskell' -X PUT 127.0.0.1:8080/edit/1 -d 'Person { personAge=5,personName="Bob" }'
 main :: IO ()
 main = do
   database <- newTVarIO (M.fromList people)
