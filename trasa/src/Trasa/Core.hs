@@ -133,7 +133,7 @@ module Trasa.Core
 import Data.Kind (Type)
 import Data.Functor.Identity (Identity(..))
 import Control.Applicative (liftA2)
-import Data.Maybe (mapMaybe,listToMaybe,isJust)
+import Data.Maybe (mapMaybe,listToMaybe,isJust,fromMaybe)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List as L
 import qualified Data.List.NonEmpty as NE
@@ -519,8 +519,7 @@ parseWith
   -> Maybe Content -- ^ Request content type and body
   -> Either TrasaErr (Concealed route)
 parseWith toMeta madeRouter method (Url encodedPath encodedQuery) mcontent = do
-  Pathed route captures <- maybe (Left (status N.status404)) Right
-    $ parsePathWith madeRouter method encodedPath
+  Pathed route captures <- parsePathWith madeRouter method encodedPath
   let m = toMeta route
   querys <- parseQueryWith (metaQuery m) encodedQuery
   reqBody <- decodeRequestBody (metaRequestBody m) mcontent
@@ -531,32 +530,34 @@ parsePathWith :: forall route.
      Router route
   -> Method -- ^ Method
   -> [T.Text] -- ^ Path Pieces
-  -> Maybe (Pathed route)
-parsePathWith (Router r0) method pieces0 =
-  listToMaybe (go VecNil pieces0 r0)
+  -> Either TrasaErr (Pathed route)
+parsePathWith (Router r0) method pieces0 = go VecNil pieces0 r0
   where
   go :: forall n.
         Vec n T.Text -- captures being accumulated
      -> [T.Text] -- remaining pieces
      -> IxedRouter route n -- router fragment
-     -> [Pathed route]
+     -> Either TrasaErr (Pathed route)
   go captures ps (IxedRouter matches mcapture responders) = case ps of
     [] -> case HM.lookup (encodeMethod method) responders of
-      Nothing -> []
-      Just respondersAtMethod ->
-        mapMaybe (\(IxedResponder route capDecs) ->
-          fmap (\x -> (Pathed route x)) (decodeCaptureVector capDecs captures)
-        ) respondersAtMethod
-    p : psNext ->
-      let res1 = maybe [] id $ fmap (go captures psNext) (HM.lookup p matches)
+      Nothing -> Left (status N.status405)
+      Just respondersAtMethod -> fromMaybe (Left (status N.status400)) . listToMaybe $
+        ( mapMaybe
+            (\(IxedResponder route capDecs) ->
+                 fmap (\x -> (Right (Pathed route x))) (decodeCaptureVector capDecs captures)
+            )
+            respondersAtMethod
+        )
+    (p:psNext) ->
+      let res1 = maybe [] (:[]) $ fmap (go captures psNext) (HM.lookup p matches)
           -- Since this uses snocVec to build up the captures,
           -- this algorithm's complexity includes a term that is
           -- O(n^2) in the number of captures. However, most routes
           -- that I deal with have one or two captures. Occassionally,
           -- I'll get one with four or five, but this happens
           -- so infrequently that I'm not concerned about this.
-          res2 = maybe [] id $ fmap (go (snocVec p captures) psNext) mcapture
-       in res1 ++ res2
+          res2 = maybe [] (:[]) $ fmap (go (snocVec p captures) psNext) mcapture
+       in fromMaybe (Left (status N.status400)) . listToMaybe $ res1 ++ res2
 
 parseQueryWith :: Rec (Query CaptureDecoding) querys -> QueryString -> Either TrasaErr (Rec Parameter querys)
 parseQueryWith decoding (QueryString querys) = Topaz.traverse param decoding
