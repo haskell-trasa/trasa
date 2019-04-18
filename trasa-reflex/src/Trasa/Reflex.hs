@@ -112,6 +112,7 @@ eventHandler caps qrys e = go (selfSubset caps) (selfSubset qrys)
     go RecNil RecNil f = f (fmap (\(Requiem _ _ theResp) -> theResp) e)
     go RecNil (qryElem `RecCons` qs) f = go RecNil qs (f (fmap (\(Requiem _ qryVals _) -> case elemGet qryElem qryVals of
         ParameterFlag v -> v
+        ParameterRequired v -> v
         ParameterOptional v -> v
         ParameterList v -> v
       ) e))
@@ -129,6 +130,7 @@ dynamicHandler caps qrys e = go (selfSubset caps) (selfSubset qrys)
     go RecNil RecNil f = f (fmap (\(Requiem _ _ theResp) -> theResp) e)
     go RecNil (qryElem `RecCons` qs) f = go RecNil qs (f (fmap (\(Requiem _ qryVals _) -> case elemGet qryElem qryVals of
         ParameterFlag v -> v
+        ParameterRequired v -> v
         ParameterOptional v -> v
         ParameterList v -> v
       ) e))

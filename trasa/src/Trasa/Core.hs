@@ -230,16 +230,19 @@ appendPath (PathConsCapture cas as) bs = PathConsCapture cas (appendPath as bs)
 
 data Param
   = Flag
+  | forall a. Required a
   | forall a. Optional a
   | forall a. List a
 
 data Parameter :: Param -> Type where
   ParameterFlag :: !Bool -> Parameter Flag
+  ParameterRequired :: !a -> Parameter (Required a)
   ParameterOptional :: !(Maybe a) -> Parameter (Optional a)
   ParameterList :: ![a] -> Parameter (List a)
 
 data Query :: (Type -> Type) -> Param -> Type where
   QueryFlag :: !T.Text -> Query cap Flag
+  QueryRequired :: !T.Text -> !(cap a) -> Query cap (Required a)
   QueryOptional :: !T.Text -> !(cap a) -> Query cap (Optional a)
   QueryList :: !T.Text -> !(cap a) -> Query cap (List a)
 
@@ -263,6 +266,7 @@ infixr 7 .&
 mapQuery :: (forall x. f x -> g x) -> Rec (Query f) qs -> Rec (Query g) qs
 mapQuery eta = Topaz.map $ \case
   QueryFlag key -> QueryFlag key
+  QueryRequired key query -> QueryRequired key (eta query)
   QueryOptional key query -> QueryOptional key (eta query)
   QueryList key query -> QueryList key (eta query)
 
@@ -313,7 +317,6 @@ mapMeta mapCaps mapQrys mapReq mapResp (Meta caps qrys req res method) = Meta
   method
 
 type MetaBuilder = Meta CaptureCodec CaptureCodec BodyCodec BodyCodec
-
 
 -- | This function is a more general way to transform 'MetaBuilder' into 'MetaCodec'.
 --
@@ -471,6 +474,9 @@ encodePieces pathEncoding queryEncoding path querys =
     encodeQueries (QueryFlag key `RecCons` encs) (ParameterFlag on `RecCons` qs) =
       if on then HM.insert key QueryParamFlag rest else rest
       where rest = encodeQueries encs qs
+    encodeQueries (QueryRequired key (CaptureEncoding enc) `RecCons` encs) (ParameterRequired val `RecCons` qs) =
+      HM.insert key (QueryParamSingle (enc val)) rest
+      where rest = encodeQueries encs qs
     encodeQueries (QueryOptional key (CaptureEncoding enc) `RecCons` encs) (ParameterOptional mval `RecCons` qs) =
       maybe rest (\val -> HM.insert key (QueryParamSingle (enc val)) rest) mval
       where rest = encodeQueries encs qs
@@ -523,7 +529,7 @@ parseWith toMeta madeRouter method (Url encodedPath encodedQuery) mcontent = do
   let m = toMeta route
   querys <- parseQueryWith (metaQuery m) encodedQuery
   reqBody <- decodeRequestBody (metaRequestBody m) mcontent
-  return (Concealed route captures querys reqBody)
+  pure (Concealed route captures querys reqBody)
 
 -- | Parses only the path.
 parsePathWith :: forall route.
@@ -565,6 +571,14 @@ parseQueryWith decoding (QueryString querys) = Topaz.traverse param decoding
     param :: forall qry. Query CaptureDecoding qry -> Either TrasaErr (Parameter qry)
     param = \case
       QueryFlag key -> Right (ParameterFlag (HM.member key querys))
+      QueryRequired key (CaptureDecoding dec) -> case HM.lookup key querys of
+        Nothing -> Left (TrasaErr N.status400 "required query param is absent")
+        Just query -> case query of
+          QueryParamFlag -> Left (TrasaErr N.status400 "query flag given when key-value expected")
+          QueryParamSingle txt -> case dec txt of 
+            Just dtxt -> Right (ParameterRequired dtxt)
+            Nothing -> Left (TrasaErr N.status400 "failed to decode required query parameter")
+          QueryParamList _ -> Left (TrasaErr N.status400 "query param list given when key-value expected")
       QueryOptional key (CaptureDecoding dec) -> case HM.lookup key querys of
         Nothing -> Right (ParameterOptional Nothing)
         Just query -> case query of
@@ -586,16 +600,18 @@ decodeCaptureVector IxedRecNil VecNil = Just RecNil
 decodeCaptureVector (IxedRecCons (CaptureDecoding decode) rnext) (VecCons piece vnext) = do
   val <- decode piece
   vals <- decodeCaptureVector rnext vnext
-  return (Identity val `RecCons` vals)
+  pure (Identity val `RecCons` vals)
 
 type family ParamBase (param :: Param) :: Type where
   ParamBase Flag = Bool
+  ParamBase (Required a) = a
   ParamBase (Optional a) = Maybe a
   ParamBase (List a) = [a]
 
 demoteParameter :: Parameter param -> ParamBase param
 demoteParameter = \case
   ParameterFlag b -> b
+  ParameterRequired v -> v
   ParameterOptional m -> m
   ParameterList l -> l
 
@@ -652,6 +668,7 @@ prepareExplicit route = go (Prepared route)
     \c -> go (\caps querys reqBod -> k (Identity c `RecCons` caps) querys reqBod) pnext qs b
   parameter :: forall param. Query qf param -> ParamBase param -> Parameter param
   parameter (QueryFlag _) b = ParameterFlag b
+  parameter (QueryRequired _ _) v = ParameterRequired v
   parameter (QueryOptional _ _) m = ParameterOptional m
   parameter (QueryList _ _) l = ParameterList l
 
