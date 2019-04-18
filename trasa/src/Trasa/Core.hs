@@ -65,6 +65,7 @@ module Trasa.Core
   , Rec(..)
   , demoteParameter
   , flag
+  , required
   , optional
   , list
   , qend
@@ -248,6 +249,9 @@ data Query :: (Type -> Type) -> Param -> Type where
 
 flag :: T.Text -> Query cpf Flag
 flag = QueryFlag
+
+required :: T.Text -> cpf query -> Query cpf (Required query)
+required = QueryRequired
 
 optional :: T.Text -> cpf query -> Query cpf (Optional query)
 optional = QueryOptional
