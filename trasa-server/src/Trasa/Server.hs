@@ -13,7 +13,8 @@ module Trasa.Server
   , serveWith
   ) where
 
-import Control.Monad (join)
+import Control.Monad (join, MonadPlus(..))
+import Control.Applicative (liftA2, Alternative(..))
 import Data.Traversable (for)
 import Data.Functor.Identity
 
@@ -45,7 +46,20 @@ newtype TrasaT m a = TrasaT
   , MonadError TrasaErr
   , MonadIO
   , MonadState (M.Map (CI BS.ByteString) T.Text)
-  , MonadReader (M.Map (CI BS.ByteString) T.Text))
+  , MonadReader (M.Map (CI BS.ByteString) T.Text)
+  )
+
+instance (Monad m, Semigroup a) => Semigroup (TrasaT m a) where
+  (<>) = liftA2 (<>)
+
+instance (Monad m, Monoid a) => Monoid (TrasaT m a) where
+  mempty = pure mempty
+
+instance (Alternative m, Monad m) => Alternative (TrasaT m) where
+  empty = lift empty
+  a <|> b = catchError a (const b)
+
+instance (Monad m, Alternative m) => MonadPlus (TrasaT m)
 
 instance MonadTrans TrasaT where
   lift = TrasaT . lift . lift . lift
