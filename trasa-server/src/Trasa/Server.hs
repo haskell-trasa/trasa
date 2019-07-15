@@ -8,7 +8,7 @@
 {-# OPTIONS_GHC -Wall -Werror #-}
 module Trasa.Server
   ( TrasaT
-  , TrasaReader(..)
+  , TrasaEnv(..)
   , runTrasaT
   , mapTrasaT
   , serveWith
@@ -38,13 +38,13 @@ import Trasa.Core
 
 type Headers = M.Map (CI BS.ByteString) T.Text
 
-data TrasaReader = TrasaReader
+data TrasaEnv = TrasaEnv
   { trasaHeaders :: Headers
   , trasaQueryString :: QueryString
   }
 
 newtype TrasaT m a = TrasaT
-  { unTrasaT :: ExceptT TrasaErr (StateT Headers (ReaderT TrasaReader m)) a
+  { unTrasaT :: ExceptT TrasaErr (StateT Headers (ReaderT TrasaEnv m)) a
   } deriving
   ( Functor
   , Applicative
@@ -52,7 +52,7 @@ newtype TrasaT m a = TrasaT
   , MonadError TrasaErr
   , MonadIO
   , MonadState (M.Map (CI BS.ByteString) T.Text)
-  , MonadReader TrasaReader
+  , MonadReader TrasaEnv
   )
 
 instance (Monad m, Semigroup a) => Semigroup (TrasaT m a) where
@@ -75,7 +75,7 @@ runTrasaT
   -> M.Map (CI BS.ByteString) T.Text -- ^ Headers
   -> QueryString -- ^ Query string parameters
   -> m (Either TrasaErr a, M.Map (CI BS.ByteString) T.Text)
-runTrasaT trasa headers queryStrings = (flip runReaderT (TrasaReader headers queryStrings) . flip runStateT M.empty . runExceptT  . unTrasaT) trasa
+runTrasaT trasa headers queryStrings = (flip runReaderT (TrasaEnv headers queryStrings) . flip runStateT M.empty . runExceptT  . unTrasaT) trasa
 
 mapTrasaT :: (forall x. m x -> n x) -> TrasaT m a -> TrasaT n a
 mapTrasaT eta = TrasaT . mapExceptT (mapStateT (mapReaderT eta)) . unTrasaT
