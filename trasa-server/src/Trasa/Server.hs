@@ -8,6 +8,7 @@
 {-# OPTIONS_GHC -Wall -Werror #-}
 module Trasa.Server
   ( TrasaT
+  , TrasaEnv(..)
   , runTrasaT
   , mapTrasaT
   , serveWith
@@ -37,8 +38,14 @@ import Trasa.Core
 
 type Headers = M.Map (CI BS.ByteString) T.Text
 
+data TrasaEnv = TrasaEnv
+  { trasaHeaders :: Headers
+  , trasaQueryString :: QueryString
+  , trasaRequestBody :: BS.ByteString
+  }
+
 newtype TrasaT m a = TrasaT
-  { unTrasaT :: ExceptT TrasaErr (StateT Headers (ReaderT Headers m)) a
+  { unTrasaT :: ExceptT TrasaErr (StateT Headers (ReaderT TrasaEnv m)) a
   } deriving
   ( Functor
   , Applicative
@@ -46,7 +53,7 @@ newtype TrasaT m a = TrasaT
   , MonadError TrasaErr
   , MonadIO
   , MonadState (M.Map (CI BS.ByteString) T.Text)
-  , MonadReader (M.Map (CI BS.ByteString) T.Text)
+  , MonadReader TrasaEnv
   )
 
 instance (Monad m, Semigroup a) => Semigroup (TrasaT m a) where
@@ -67,8 +74,10 @@ instance MonadTrans TrasaT where
 runTrasaT
   :: TrasaT m a
   -> M.Map (CI BS.ByteString) T.Text -- ^ Headers
+  -> QueryString -- ^ Query string parameters
+  -> BS.ByteString -- ^ Request body
   -> m (Either TrasaErr a, M.Map (CI BS.ByteString) T.Text)
-runTrasaT trasa headers = (flip runReaderT headers . flip runStateT M.empty . runExceptT  . unTrasaT) trasa
+runTrasaT trasa headers queryStrings requestBody = (flip runReaderT (TrasaEnv headers queryStrings requestBody) . flip runStateT M.empty . runExceptT  . unTrasaT) trasa
 
 mapTrasaT :: (forall x. m x -> n x) -> TrasaT m a -> TrasaT n a
 mapTrasaT eta = TrasaT . mapExceptT (mapStateT (mapReaderT eta)) . unTrasaT
@@ -95,9 +104,11 @@ serveWith toMeta makeResponse madeRouter =
           Just accepts -> do
             content <- for (M.lookup hContentType headers >>= N.parseAccept . TE.encodeUtf8) $ \typ ->
               Content typ <$> WAI.strictRequestBody req
-            let url = Url (WAI.pathInfo req) (decodeQuery (WAI.queryString req))
+            requestBody <- WAI.getRequestBodyChunk req
+            let queryStrings = decodeQuery (WAI.queryString req)
+                url = Url (WAI.pathInfo req) queryStrings
                 dispatch = dispatchWith toMeta makeResponse madeRouter method accepts url content
-            runTrasaT dispatch headers >>= \case
+            runTrasaT dispatch headers queryStrings requestBody >>= \case
               (resErr,newHeaders) -> case join resErr of
                 Left (TrasaErr stat errBody) ->
                   respond (WAI.responseLBS stat (encodeHeaders newHeaders) errBody)
