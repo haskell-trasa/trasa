@@ -413,7 +413,9 @@ decodeRequestBody reqDec mcontent = case reqDec of
     Just (Content media bod) -> go (toList (getMany decs)) media bod
   RequestBodyAbsent -> case mcontent of
     Nothing -> Right RequestBodyAbsent
-    Just _  -> wrongBody
+    Just (Content _ bod) -> if LBS.null bod
+      then Right RequestBodyAbsent
+      else wrongBody
   where
     wrongBody = Left (status N.status415)
     go :: [BodyDecoding a] -> N.MediaType -> LBS.ByteString -> Either TrasaErr (RequestBody Identity (Body a))
