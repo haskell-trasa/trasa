@@ -5,7 +5,8 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-{-# OPTIONS_GHC -Wall -Werror #-}
+{-# OPTIONS_GHC -Wall -Werror -Wwarn=deprecations #-}
+
 module Trasa.Server
   ( TrasaT
   , TrasaEnv(..)
@@ -14,7 +15,6 @@ module Trasa.Server
   , serveWith
   ) where
 
-
 import Control.Applicative (liftA2, Alternative(..))
 import Control.Monad (join, MonadPlus(..))
 import Control.Monad.Except (ExceptT,runExceptT,mapExceptT,MonadError(..),MonadIO(..))
@@ -22,6 +22,7 @@ import Control.Monad.Reader (ReaderT,runReaderT,mapReaderT,MonadReader(..),Monad
 import Control.Monad.State.Strict (StateT,runStateT,mapStateT,MonadState(..))
 import Data.CaseInsensitive (CI)
 import Data.Functor.Identity
+import Data.IORef
 import Data.Traversable (for)
 import Network.HTTP.Types.Header (hAccept,hContentType)
 import qualified Data.ByteString as BS
@@ -107,11 +108,11 @@ serveWith toMeta makeResponse madeRouter =
           Just accepts -> do
             content <- for (M.lookup hContentType headers >>= N.parseAccept . TE.encodeUtf8) $ \typ ->
               Content typ <$> Wai.strictRequestBody req
-            requestBody <- Wai.getRequestBodyChunk req
-            let queryStrings = decodeQuery (Wai.queryString req)
-                url = Url (Wai.pathInfo req) queryStrings
+            (newReq, requestBody) <- getRequestBody req
+            let queryStrings = decodeQuery (Wai.queryString newReq)
+                url = Url (Wai.pathInfo newReq) queryStrings
                 dispatch = dispatchWith toMeta makeResponse madeRouter method accepts url content
-                mrequestBodyType = Wai.getRequestBodyType req
+                mrequestBodyType = Wai.getRequestBodyType newReq
             runTrasaT dispatch headers queryStrings requestBody mrequestBodyType >>= \case
               (resErr,newHeaders) -> case join resErr of
                 Left (TrasaErr stat errBody) ->
@@ -129,3 +130,22 @@ serveWith toMeta makeResponse madeRouter =
       Nothing -> Just ["*/*"]
       Just accept -> (traverse N.parseAccept . fmap (TE.encodeUtf8 . T.dropAround (' '==)) . T.splitOn ",") accept
 
+-- Inspecting the request body will cause its chunks to free:
+-- so, we copoy the request to make it available.
+-- Unfortunately the record selector is deprecated
+getRequestBody :: Wai.Request -> IO (Wai.Request, BS.ByteString)
+getRequestBody req = do
+  body' <- loop id
+  ichunks <- newIORef body'
+  let rbody = atomicModifyIORef ichunks $ \chunks ->
+         case chunks of
+             [] -> ([], BS.empty)
+             x:y -> (y, x)
+  let req' = req { Wai.requestBody = rbody }
+  pure (req', BS.concat body')
+  where 
+  loop front = do
+    bs <- Wai.getRequestBodyChunk req
+    if BS.null bs
+    then pure $ front []
+    else loop $ front . (bs:)
