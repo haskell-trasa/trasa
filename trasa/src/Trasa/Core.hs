@@ -420,11 +420,16 @@ decodeRequestBody reqDec mcontent = case reqDec of
     wrongBody = Left (status N.status415)
     go :: [BodyDecoding a] -> N.MediaType -> LBS.ByteString -> Either TrasaErr (RequestBody Identity (Body a))
     go [] _ _ = Left (status N.status415)
-    go (BodyDecoding medias dec:decs) media bod = case any (flip N.matches media) medias of
+    go (BodyDecoding medias dec:decs) media bod = case any (flip mediaMatches media) medias of
       True -> bimap (TrasaErr N.status415 . LBS.fromStrict . T.encodeUtf8)
                     (RequestBodyPresent . Identity)
                     (dec bod)
       False -> go decs media bod
+
+mediaMatches :: N.MediaType -> N.MediaType -> Bool
+mediaMatches _ "*/*" = True
+mediaMatches "*/*" _ = True
+mediaMatches x y = N.matches x y
 
 encodeResponseBody
   :: forall response
