@@ -33,6 +33,7 @@ import qualified Network.HTTP.Media.MediaType as N
 import qualified Network.HTTP.Media.RenderHeader as N
 import qualified Network.HTTP.Types.Status as N
 import qualified Network.Wai as Wai
+import qualified Network.Wai.Parse as Wai
 
 import Trasa.Core
 
@@ -41,6 +42,7 @@ type Headers = M.Map (CI BS.ByteString) T.Text
 data TrasaEnv = TrasaEnv
   { trasaHeaders :: Headers
   , trasaQueryString :: QueryString
+  , trasaRequestBodyType :: Maybe Wai.RequestBodyType
   }
 
 newtype TrasaT m a = TrasaT
@@ -74,8 +76,9 @@ runTrasaT
   :: TrasaT m a
   -> M.Map (CI BS.ByteString) T.Text -- ^ Headers
   -> QueryString -- ^ Query string parameters
+  -> Maybe Wai.RequestBodyType -- ^ Request body type from @wai-extra@
   -> m (Either TrasaErr a, M.Map (CI BS.ByteString) T.Text)
-runTrasaT trasa headers queryStrings = (flip runReaderT (TrasaEnv headers queryStrings) . flip runStateT M.empty . runExceptT  . unTrasaT) trasa
+runTrasaT trasa headers queryStrings mrequestBodyType = (flip runReaderT (TrasaEnv headers queryStrings mrequestBodyType) . flip runStateT M.empty . runExceptT  . unTrasaT) trasa
 
 mapTrasaT :: (forall x. m x -> n x) -> TrasaT m a -> TrasaT n a
 mapTrasaT eta = TrasaT . mapExceptT (mapStateT (mapReaderT eta)) . unTrasaT
@@ -105,7 +108,8 @@ serveWith toMeta makeResponse madeRouter =
             let queryStrings = decodeQuery (Wai.queryString req)
                 url = Url (Wai.pathInfo req) queryStrings
                 dispatch = dispatchWith toMeta makeResponse madeRouter method accepts url content
-            runTrasaT dispatch headers queryStrings >>= \case
+                mrequestBodyType = Wai.getRequestBodyType req
+            runTrasaT dispatch headers queryStrings mrequestBodyType >>= \case
               (resErr,newHeaders) -> case join resErr of
                 Left (TrasaErr stat errBody) ->
                   respond (Wai.responseLBS stat (encodeHeaders newHeaders) errBody)
