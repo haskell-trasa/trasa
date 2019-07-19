@@ -2,7 +2,7 @@ cabal-version: 2.2
 name:
   trasa-server
 version:
-  0.5.1
+  0.5.2
 synopsis:
   Type safe web server
 description:

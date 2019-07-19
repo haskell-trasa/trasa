@@ -22,7 +22,6 @@ import Control.Monad.Reader (ReaderT,runReaderT,mapReaderT,MonadReader(..),Monad
 import Control.Monad.State.Strict (StateT,runStateT,mapStateT,MonadState(..))
 import Data.CaseInsensitive (CI)
 import Data.Functor.Identity
-import Data.IORef
 import Data.Traversable (for)
 import Network.HTTP.Types.Header (hAccept,hContentType)
 import qualified Data.ByteString as BS
@@ -34,7 +33,6 @@ import qualified Network.HTTP.Media.MediaType as N
 import qualified Network.HTTP.Media.RenderHeader as N
 import qualified Network.HTTP.Types.Status as N
 import qualified Network.Wai as Wai
-import qualified Network.Wai.Parse as Wai
 
 import Trasa.Core
 
@@ -43,8 +41,6 @@ type Headers = M.Map (CI BS.ByteString) T.Text
 data TrasaEnv = TrasaEnv
   { trasaHeaders :: Headers
   , trasaQueryString :: QueryString
-  , trasaRequestBody :: BS.ByteString
-  , trasaRequestBodyType :: Maybe Wai.RequestBodyType
   }
 
 newtype TrasaT m a = TrasaT
@@ -78,10 +74,8 @@ runTrasaT
   :: TrasaT m a
   -> M.Map (CI BS.ByteString) T.Text -- ^ Headers
   -> QueryString -- ^ Query string parameters
-  -> BS.ByteString -- ^ Request body
-  -> Maybe Wai.RequestBodyType -- ^ Request body type from @wai-extra@
   -> m (Either TrasaErr a, M.Map (CI BS.ByteString) T.Text)
-runTrasaT trasa headers queryStrings requestBody mrequestBodyType = (flip runReaderT (TrasaEnv headers queryStrings requestBody mrequestBodyType) . flip runStateT M.empty . runExceptT  . unTrasaT) trasa
+runTrasaT trasa headers queryStrings = (flip runReaderT (TrasaEnv headers queryStrings) . flip runStateT M.empty . runExceptT  . unTrasaT) trasa
 
 mapTrasaT :: (forall x. m x -> n x) -> TrasaT m a -> TrasaT n a
 mapTrasaT eta = TrasaT . mapExceptT (mapStateT (mapReaderT eta)) . unTrasaT
@@ -108,12 +102,10 @@ serveWith toMeta makeResponse madeRouter =
           Just accepts -> do
             content <- for (M.lookup hContentType headers >>= N.parseAccept . TE.encodeUtf8) $ \typ ->
               Content typ <$> Wai.strictRequestBody req
-            (newReq, requestBody) <- getRequestBody req
-            let queryStrings = decodeQuery (Wai.queryString newReq)
-                url = Url (Wai.pathInfo newReq) queryStrings
+            let queryStrings = decodeQuery (Wai.queryString req)
+                url = Url (Wai.pathInfo req) queryStrings
                 dispatch = dispatchWith toMeta makeResponse madeRouter method accepts url content
-                mrequestBodyType = Wai.getRequestBodyType newReq
-            runTrasaT dispatch headers queryStrings requestBody mrequestBodyType >>= \case
+            runTrasaT dispatch headers queryStrings >>= \case
               (resErr,newHeaders) -> case join resErr of
                 Left (TrasaErr stat errBody) ->
                   respond (Wai.responseLBS stat (encodeHeaders newHeaders) errBody)
@@ -130,22 +122,3 @@ serveWith toMeta makeResponse madeRouter =
       Nothing -> Just ["*/*"]
       Just accept -> (traverse N.parseAccept . fmap (TE.encodeUtf8 . T.dropAround (' '==)) . T.splitOn ",") accept
 
--- Inspecting the request body will cause its chunks to free:
--- so, we copoy the request to make it available.
--- Unfortunately the record selector is deprecated
-getRequestBody :: Wai.Request -> IO (Wai.Request, BS.ByteString)
-getRequestBody req = do
-  body' <- loop id
-  ichunks <- newIORef body'
-  let rbody = atomicModifyIORef ichunks $ \chunks ->
-         case chunks of
-             [] -> ([], BS.empty)
-             x:y -> (y, x)
-  let req' = req { Wai.requestBody = rbody }
-  pure (req', BS.concat body')
-  where 
-  loop front = do
-    bs <- Wai.getRequestBodyChunk req
-    if BS.null bs
-    then pure $ front []
-    else loop $ front . (bs:)
