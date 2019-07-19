@@ -2,7 +2,7 @@ cabal-version: 2.2
 name:
   trasa-server
 version:
-  0.5.2
+  0.5.3
 synopsis:
   Type safe web server
 description:
@@ -45,7 +45,6 @@ library
     , text == 1.2.*
     , trasa == 0.4.*
     , wai == 3.2.2.*
-    , wai-extra
   default-language:
     Haskell2010
 
