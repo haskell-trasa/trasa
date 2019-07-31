@@ -129,6 +129,7 @@ module Trasa.Core
   -- * Argument Currying
   , ParamBase
   , Arguments
+  , UrlPieces
   , handler
   -- * Helpers
   , prettyRouter
