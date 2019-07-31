@@ -20,6 +20,7 @@ module Trasa.Core
   , Router
   -- ** Existential
   , Prepared(..)
+  , PreparedUrl(..)
   , Concealed(..)
   , Constructed(..)
   , conceal
@@ -43,7 +44,9 @@ module Trasa.Core
   , status
   -- * Using Routes
   , prepareWith
+  , prepareUrlWith
   , linkWith
+  , linkUrlWith
   , dispatchWith
   , parseWith
   , payloadWith
@@ -358,6 +361,16 @@ linkWith toMeta (Prepared route captures querys _) =
   encodePieces (metaPath m) (metaQuery m) captures querys
   where m = toMeta route
 
+linkUrlWith
+  :: forall route reqCodec respCodec
+  .  (forall caps qrys req resp. route caps qrys req resp -> Meta CaptureEncoding CaptureEncoding reqCodec respCodec caps qrys req resp)
+  -> PreparedUrl route
+  -- ^ The route to encode
+  -> Url
+linkUrlWith toMeta (PreparedUrl route captures querys) =
+  encodePieces (metaPath m) (metaQuery m) captures querys
+  where m = toMeta route
+
 data Payload = Payload
   { payloadUrl :: !Url
   , payloadContent :: !(Maybe Content)
@@ -641,6 +654,10 @@ type family Arguments (pieces :: [Type]) (querys :: [Param]) (body :: Bodiedness
   Arguments '[] (q ': qs) r b = ParamBase q -> Arguments '[] qs r b
   Arguments (c ': cs) qs b r = c -> Arguments cs qs b r
 
+type family UrlPieces (pieces :: [Type]) (querys :: [Param]) (result :: Type) :: Type where
+  UrlPieces '[] '[] r = r
+  UrlPieces '[] (q ': qs) r = ParamBase q -> UrlPieces '[] qs r
+  UrlPieces (c ': cs) qs r = c -> UrlPieces cs qs r
 
 -- | Used my users to define a function called prepare, see tutorial
 prepareWith
@@ -677,6 +694,41 @@ prepareExplicit route = go (Prepared route)
     go k pnext qs b
   go k (PathConsCapture _ pnext) qs b =
     \c -> go (\caps querys reqBod -> k (Identity c `RecCons` caps) querys reqBod) pnext qs b
+  parameter :: forall param. Query qf param -> ParamBase param -> Parameter param
+  parameter (QueryFlag _) b = ParameterFlag b
+  parameter (QueryRequired _ _) v = ParameterRequired v
+  parameter (QueryOptional _ _) m = ParameterOptional m
+  parameter (QueryList _ _) l = ParameterList l
+
+prepareUrlWith
+  :: (forall caps qrys req resp. route caps qrys req resp -> Meta capCodec qryCodec reqCodec respCodec caps qrys req resp)
+  -> route captures query request response
+  -- ^ The route to prepare
+  -> UrlPieces captures query (PreparedUrl route)
+prepareUrlWith toMeta route =
+  prepareUrlExplicit route (metaPath m) (metaQuery m)
+  where m = toMeta route
+
+prepareUrlExplicit :: forall route captures queries request response pf qf.
+     route captures queries request response
+  -> Path pf captures
+  -> Rec (Query qf) queries
+  -> UrlPieces captures queries (PreparedUrl route)
+prepareUrlExplicit route = go (PreparedUrl route)
+  where
+  -- Adopted from: https://www.reddit.com/r/haskell/comments/67l9so/currying_a_typelevel_list/dgrghxz/
+  go :: forall caps qrys z.
+        (Rec Identity caps -> Rec Parameter qrys -> z)
+     -> Path pf caps
+     -> Rec (Query qf) qrys
+     -> UrlPieces caps qrys z
+  go k PathNil RecNil = k RecNil RecNil
+  go k PathNil (q `RecCons` qs) =
+    \qt -> go (\caps querys -> k caps (parameter q qt `RecCons` querys)) PathNil qs
+  go k (PathConsMatch _ pnext) qs =
+    go k pnext qs
+  go k (PathConsCapture _ pnext) qs =
+    \c -> go (\caps querys -> k (Identity c `RecCons` caps) querys) pnext qs
   parameter :: forall param. Query qf param -> ParamBase param -> Parameter param
   parameter (QueryFlag _) b = ParameterFlag b
   parameter (QueryRequired _ _) v = ParameterRequired v
@@ -729,6 +781,14 @@ data Prepared :: ([Type] -> [Param] -> Bodiedness -> Type -> Type) -> Type -> Ty
     -> !(Rec Parameter querys)
     -> !(RequestBody Identity request)
     -> Prepared route response
+
+-- | Includes the route, path, query parameters
+data PreparedUrl :: ([Type] -> [Param] -> Bodiedness -> Type -> Type) -> Type where
+  PreparedUrl ::
+       !(route captures querys request response)
+    -> !(Rec Identity captures)
+    -> !(Rec Parameter querys)
+    -> PreparedUrl route
 
 -- | Only needed to implement 'parseWith'. Most users do not need this.
 --   If you need to create a route hierarchy to provide breadcrumbs,
