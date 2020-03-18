@@ -3,6 +3,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE RankNTypes #-}
@@ -132,29 +133,33 @@ module Trasa.Core
   , handler
   -- * Helpers
   , prettyRouter
+  , generateAllRoutes
   ) where
 
-import Data.Kind (Type)
-import Data.Functor.Identity (Identity(..))
 import Control.Applicative (liftA2)
-import Data.Maybe (mapMaybe,listToMaybe,isJust,fromMaybe)
+import Control.Monad (unless)
+import Data.Bifunctor (first,bimap)
+import Data.Foldable (toList)
+import Data.Functor.Identity (Identity(..))
+import Data.HashMap.Strict (HashMap)
+import Data.Kind (Type)
 import Data.List.NonEmpty (NonEmpty)
+import Data.Maybe (mapMaybe,listToMaybe,isJust,fromMaybe)
+import Language.Haskell.TH.Syntax (Name,Q,Dec,TyVarBndr(..))
+import Topaz.Types (Rec(..), type (++))
+import qualified Data.ByteString.Lazy as LBS
+import qualified Data.HashMap.Strict as HM
 import qualified Data.List as L
 import qualified Data.List.NonEmpty as NE
-import Data.Foldable (toList)
-import Data.Bifunctor (first,bimap)
-
-import qualified Data.ByteString.Lazy as LBS
+import qualified Data.Semigroup as SG
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import qualified Network.HTTP.Types.Status as N
-import qualified Network.HTTP.Media.MediaType as N
+import qualified Language.Haskell.TH.Datatype as THD
+import qualified Language.Haskell.TH.Syntax as TH
 import qualified Network.HTTP.Media.Accept as N
-import qualified Data.HashMap.Strict as HM
-import qualified Data.Semigroup as SG
-import Data.HashMap.Strict (HashMap)
+import qualified Network.HTTP.Media.MediaType as N
+import qualified Network.HTTP.Types.Status as N
 import qualified Topaz.Rec as Topaz
-import Topaz.Types (Rec(..), type (++))
 
 import Trasa.Method
 import Trasa.Url
@@ -1001,3 +1006,107 @@ showRespondersList = id
   . L.intercalate ","
   . map (\(method,xs) -> T.unpack method ++ (if L.length xs > 1 then "*" else ""))
   . HM.toList
+
+-- | Given a route type @Route@, generate a function
+--   that looks like
+--
+--   @
+--   allRoutes :: ['Constructed' Route]
+--   allRoutes = ...
+--   @
+--
+--   Which could be useful e.g. with 'routerWith'.
+--
+--   This function makes two assumptions about your
+--   route type:
+--
+--     1. It is kinded @['Type'] -> ['Param'] -> 'Bodiedness' -> 'Type' -> 'Type'@
+--     2. Its value constructors have no arguments
+--
+--   Example:
+--
+--   @
+--   data Route :: ['Type'] -> ['Param'] -> 'Bodiedness' -> 'Type' -> 'Type' where
+--     HelloWorld   :: Route '[] '[] ''Bodyless' 'String'
+--     GoodbyeWorld :: Route '[] '[] ''Bodyless' 'Data.Void.Void'
+--   $(generateAllRoutes ''Route)
+--   @
+--
+--   will generate:
+--
+--   @
+--   allRoutes :: [Constructed Route]
+--   allRoutes = [Constructed HelloWorld, Constructed GoodbyeWorld]
+--   @
+--
+generateAllRoutes :: Name -> Q [Dec]
+generateAllRoutes r = do
+  d <- THD.reifyDatatype r
+  hasConstructedKind (THD.datatypeVars d)
+  noConstructorArgs (THD.datatypeCons d)
+  let rhs = TH.ListE $ map
+        (\c -> TH.AppE
+          (TH.ConE 'Constructed)
+          (TH.ConE (THD.constructorName c))
+        )
+        (THD.datatypeCons d)
+  let name = TH.mkName "allRoutes"
+  -- N.B: When we use mkName here instead of a tick,
+  -- the generated code includes a ticked
+  -- @'Constructed@ instead of just @Constructed@.
+  -- Very strange, since I thought only 'PromotedT'
+  -- was supposed to do that. Also, to allow for
+  -- qualified imports we must fully qualify the name.
+  let typ  = TH.AppT TH.ListT (TH.AppT (TH.ConT (TH.mkName "Trasa.Core.Constructed")) (TH.ConT (THD.datatypeName d)))
+  let bod  = [TH.Clause [] (TH.NormalB rhs) []]
+  pure [TH.SigD name typ, TH.FunD name bod]
+
+-- Verify that the constructors all take no arguments.
+noConstructorArgs :: [THD.ConstructorInfo] -> Q ()
+noConstructorArgs = go
+  where
+    msg = "generateAllRoutes expects all"
+      <> " constructors to have no arguments."
+
+    go [] = pure ()
+    go (c:cs) = case THD.constructorFields c of
+      [] -> go cs
+      _  -> fail msg
+
+-- Confirm the correct kind for 'generateAllRoutes'. Verifies that
+-- the type has kind
+--
+-- @['Type'] -> ['Param'] -> 'Bodiedness' -> 'Type' -> 'Type'@,
+--
+-- which is the kind that 'Constructed' needs.
+hasConstructedKind :: [TyVarBndr] -> Q ()
+hasConstructedKind = \case
+  [captures, queries, bodiedness, response] -> do
+    let correctKind = True
+          && isListType captures
+          && isListParam queries
+          && isBodiedness bodiedness
+          && isType response
+    unless correctKind $ fail msg
+  _ -> do
+    fail msg
+  where
+    msg = "generateAllRoutes expects a type"
+      ++ " with kind `[Type] -> [Param] -> Bodiedness"
+      ++ " -> Type -> Type`."
+    typeKind = TH.StarT
+    paramKind = TH.ConT ''Param
+    bodiednessKind = TH.ConT ''Bodiedness
+    isListType = \case
+      KindedTV _ (TH.AppT TH.ListT k) -> k == typeKind
+      _ -> False
+    isListParam = \case
+      KindedTV _ (TH.AppT TH.ListT k) -> k == paramKind
+      _ -> False
+    isBodiedness = \case
+      KindedTV _ k -> k == bodiednessKind
+      _ -> False
+    isType = \case
+      PlainTV _ -> True
+      KindedTV _ TH.StarT -> True
+      _ -> False
