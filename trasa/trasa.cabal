@@ -44,6 +44,7 @@ library
     Trasa.Core.Implicit
 --    Trasa.Tutorial
   build-depends:
+    , aeson >= 1.2 && < 1.5
     , base >= 4.9 && < 5
     , binary >= 0.8 && < 0.9
     , bytestring >= 0.10 && < 0.11

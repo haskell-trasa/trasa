@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+
 module Trasa.Codec
   (
   -- * Capture Codecs
@@ -22,14 +23,19 @@ module Trasa.Codec
   -- * Type Class Based Codecs
   , showReadCaptureCodec
   , showReadBodyCodec
+  , jsonCaptureCodec
+  , jsonBodyCodec
   ) where
 
-import Text.Read (readMaybe,readEither)
+import Data.Aeson (FromJSON, ToJSON)
 import Data.Bifunctor (first)
+import Data.List.NonEmpty (NonEmpty)
+import Text.Read (readMaybe,readEither)
+import qualified Data.Aeson as A
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Lazy.Char8 as LBC
 import qualified Data.Text as T
-import Data.List.NonEmpty (NonEmpty)
+import qualified Data.Text.Encoding as T
 import qualified Network.HTTP.Media.MediaType as N
 
 newtype CaptureEncoding a = CaptureEncoding { appCaptureEncoding :: a -> T.Text }
@@ -125,4 +131,17 @@ showReadBodyCodec = BodyCodec
   (pure "text/haskell")
   (LBC.pack . show)
   (first T.pack . readEither . LBC.unpack)
+
+jsonCaptureCodec :: (FromJSON a, ToJSON a) => CaptureCodec a
+jsonCaptureCodec = CaptureCodec (T.decodeUtf8 . LBC.toStrict . A.encode) (A.decodeStrict . T.encodeUtf8)
+
+jsonBodyCodec :: (FromJSON a, ToJSON a) => BodyCodec a
+jsonBodyCodec = BodyCodec
+  (pure "application/json; charset=utf-8")
+  A.encode
+  (first T.pack . A.eitherDecode)
+
+--showReadCaptureCodec :: (Show a, Read a) => CaptureCodec a
+--showReadCaptureCodec = CaptureCodec (T.pack . show) (readMaybe . T.unpack)
+
 
