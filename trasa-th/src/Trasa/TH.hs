@@ -1,8 +1,9 @@
+{-# LANGUAGE CPP             #-}
 {-# LANGUAGE DataKinds       #-}
 {-# LANGUAGE LambdaCase      #-}
 {-# LANGUAGE QuasiQuotes     #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# OPTIONS_GHC -Wall -Werror #-}
+
 module Trasa.TH
   (
     Name
@@ -100,7 +101,11 @@ metaInstanceCodec (RoutesRep routeStr routeReps) = do
   reqBodyStrat <- search routeReqRequest (Just . codecRepCodec)  [t| BodyCodec |]
   respBodyStrat <- search (NE.toList . routeReqResponse) (Just . codecRepCodec) [t| BodyCodec |]
   many <- [t| Many |]
+#if !MIN_VERSION_template_haskell(2,15,0)
   let mkTypeFamily str strat = TySynInstD (mkName str) (TySynEqn [ConT route] strat)
+#else
+  let mkTypeFamily str strat = TySynInstD (TySynEqn (Just [PlainTV (mkName str)]) (ConT route) strat)
+#endif
       typeFamilies =
         [ mkTypeFamily "CaptureStrategy" capStrat
         , mkTypeFamily "QueryStrategy" qryStrat
