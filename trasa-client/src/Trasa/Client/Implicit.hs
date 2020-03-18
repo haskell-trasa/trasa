@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
+
 module Trasa.Client.Implicit where
 
 import Trasa.Core

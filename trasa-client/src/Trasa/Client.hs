@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
-{-# OPTIONS_GHC -Wall -Werror #-}
+
 module Trasa.Client
   (
   -- * Types

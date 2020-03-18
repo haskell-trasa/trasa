@@ -5,8 +5,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-{-# OPTIONS_GHC -Wall -Werror -Wwarn=deprecations #-}
-
 module Trasa.Server
   ( TrasaT
   , TrasaEnv(..)

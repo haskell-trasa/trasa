@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
-{-# OPTIONS_GHC -Wall -Werror #-}
+
 module Trasa.Url
   (
   -- * Untyped Query Parameters

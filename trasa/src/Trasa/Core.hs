@@ -10,7 +10,6 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
-{-# OPTIONS_GHC -Wall -Werror -Wno-unticked-promoted-constructors #-}
 module Trasa.Core
   (
   -- * Types
@@ -240,27 +239,27 @@ data Param
   | forall a. List a
 
 data Parameter :: Param -> Type where
-  ParameterFlag :: !Bool -> Parameter Flag
-  ParameterRequired :: !a -> Parameter (Required a)
-  ParameterOptional :: !(Maybe a) -> Parameter (Optional a)
-  ParameterList :: ![a] -> Parameter (List a)
+  ParameterFlag :: !Bool -> Parameter 'Flag
+  ParameterRequired :: !a -> Parameter ('Required a)
+  ParameterOptional :: !(Maybe a) -> Parameter ('Optional a)
+  ParameterList :: ![a] -> Parameter ('List a)
 
 data Query :: (Type -> Type) -> Param -> Type where
-  QueryFlag :: !T.Text -> Query cap Flag
-  QueryRequired :: !T.Text -> !(cap a) -> Query cap (Required a)
-  QueryOptional :: !T.Text -> !(cap a) -> Query cap (Optional a)
-  QueryList :: !T.Text -> !(cap a) -> Query cap (List a)
+  QueryFlag :: !T.Text -> Query cap 'Flag
+  QueryRequired :: !T.Text -> !(cap a) -> Query cap ('Required a)
+  QueryOptional :: !T.Text -> !(cap a) -> Query cap ('Optional a)
+  QueryList :: !T.Text -> !(cap a) -> Query cap ('List a)
 
-flag :: T.Text -> Query cpf Flag
+flag :: T.Text -> Query cpf 'Flag
 flag = QueryFlag
 
-required :: T.Text -> cpf query -> Query cpf (Required query)
+required :: T.Text -> cpf query -> Query cpf ('Required query)
 required = QueryRequired
 
-optional :: T.Text -> cpf query -> Query cpf (Optional query)
+optional :: T.Text -> cpf query -> Query cpf ('Optional query)
 optional = QueryOptional
 
-list :: T.Text -> cpf query -> Query cpf (List query)
+list :: T.Text -> cpf query -> Query cpf ('List query)
 list = QueryList
 
 qend :: Rec (Query qpf) '[]
@@ -432,7 +431,7 @@ decodeRequestBody reqDec mcontent = case reqDec of
       else wrongBody
   where
     wrongBody = Left (status N.status415)
-    go :: [BodyDecoding a] -> N.MediaType -> LBS.ByteString -> Either TrasaErr (RequestBody Identity (Body a))
+    go :: [BodyDecoding a] -> N.MediaType -> LBS.ByteString -> Either TrasaErr (RequestBody Identity ('Body a))
     go [] _ _ = Left (status N.status415)
     go (BodyDecoding medias dec:decs) media bod = case any (flip mediaMatches media) medias of
       True -> bimap (TrasaErr N.status415 . LBS.fromStrict . T.encodeUtf8)
@@ -535,7 +534,7 @@ routerWith
   -> Router route
 routerWith toMeta = Router . foldMap buildRouter
   where
-    buildRouter :: Constructed route -> IxedRouter route Z
+    buildRouter :: Constructed route -> IxedRouter route 'Z
     buildRouter (Constructed route) = singletonIxedRouter route (metaMethod m) (metaPath m)
       where m = toMeta route
 
@@ -600,7 +599,7 @@ parseQueryWith decoding (QueryString querys) = Topaz.traverse param decoding
         Nothing -> Left (TrasaErr N.status400 "required query param is absent")
         Just query -> case query of
           QueryParamFlag -> Left (TrasaErr N.status400 "query flag given when key-value expected")
-          QueryParamSingle txt -> case dec txt of 
+          QueryParamSingle txt -> case dec txt of
             Just dtxt -> Right (ParameterRequired dtxt)
             Nothing -> Left (TrasaErr N.status400 "failed to decode required query parameter")
           QueryParamList _ -> Left (TrasaErr N.status400 "query param list given when key-value expected")
@@ -628,10 +627,10 @@ decodeCaptureVector (IxedRecCons (CaptureDecoding decode) rnext) (VecCons piece 
   pure (Identity val `RecCons` vals)
 
 type family ParamBase (param :: Param) :: Type where
-  ParamBase Flag = Bool
-  ParamBase (Required a) = a
-  ParamBase (Optional a) = Maybe a
-  ParamBase (List a) = [a]
+  ParamBase 'Flag = Bool
+  ParamBase ('Required a) = a
+  ParamBase ('Optional a) = Maybe a
+  ParamBase ('List a) = [a]
 
 demoteParameter :: Parameter param -> ParamBase param
 demoteParameter = \case
