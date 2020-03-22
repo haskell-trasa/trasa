@@ -93,6 +93,24 @@ project name = Dir name
       , File "trasa-client.nix" $(embedStringFile "./res/trasa-client.nix")
       , File "trasa-server.nix" $(embedStringFile "./res/trasa-server.nix")
       ]
+  , File "Makefile"
+      [ "package = " <> name
+      , ""
+      , "build:"
+      , "\tcabal build"
+      , ""
+      , "clean:"
+      , "\tcabal clean"
+      , ""
+      , "haddock:"
+      , "\tcabal haddock"
+      , ""
+      , "ghci:"
+      , "\tcabal repl"
+      , ""
+      , "ghcid:"
+      , "\tghcid -c cabal repl -r \"Server.main\""
+      ]
   ]
 
 client :: TreeFs
