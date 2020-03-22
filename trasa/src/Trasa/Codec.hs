@@ -140,8 +140,3 @@ jsonBodyCodec = BodyCodec
   (pure "application/json; charset=utf-8")
   A.encode
   (first T.pack . A.eitherDecode)
-
---showReadCaptureCodec :: (Show a, Read a) => CaptureCodec a
---showReadCaptureCodec = CaptureCodec (T.pack . show) (readMaybe . T.unpack)
-
-
