@@ -1,27 +1,34 @@
 {-# language
     LambdaCase
+  , OverloadedStrings
   , TemplateHaskell
 #-}
 
-{-# options_ghc -Wwarn #-}
-
 module Main (main) where
 
-import Control.Monad (void)
 import Data.FileEmbed (embedStringFile)
 import Data.Foldable (for_)
 import Data.List (intercalate)
-import System.Directory
+import System.Directory (createDirectoryIfMissing, withCurrentDirectory)
 import System.Environment (getArgs)
-import System.Process (readProcess)
 
 main :: IO ()
 main = getArgs >>= \case
   [] -> do
-    error "bad"
-  (name:_) -> do
+    help
+  ["--help"] -> do
+    help
+  [name] -> do
     write (project name)
-    void $ readProcess "tree" [name] ""
+  _ -> do
+    help
+
+help :: IO ()
+help = do
+  let msg = ""
+        <> "trasa-init: initialise a trasa project\n\n"
+        <> "usage: trasa-init <name>\n"
+  putStrLn msg
 
 -- | Simple file system tree structure.
 data TreeFs
@@ -93,7 +100,7 @@ project name = Dir name
       , File "trasa-client.nix" $(embedStringFile "./res/trasa-client.nix")
       , File "trasa-server.nix" $(embedStringFile "./res/trasa-server.nix")
       ]
-  , File "Makefile"
+  , File "Makefile" $ unlines
       [ "package = " <> name
       , ""
       , "build:"

@@ -30,7 +30,6 @@ executable trasa-init
     , base >= 4.11 && < 4.15
     , directory
     , file-embed
-    , process
   ghc-options:
     -Wall -Werror -O2
   default-language:
