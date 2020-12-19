@@ -420,7 +420,7 @@ encodeRequestBody :: RequestBody (Many BodyEncoding) request -> RequestBody Iden
 encodeRequestBody RequestBodyAbsent RequestBodyAbsent = Nothing
 encodeRequestBody (RequestBodyPresent (Many encodings)) (RequestBodyPresent (Identity rq)) =
   case NE.head encodings of
-    BodyEncoding names encoding -> Just (Content (NE.head names) (encoding rq))
+    BodyEncoding names encoding -> Just (Content (Just $NE.head names) (encoding rq))
 
 decodeRequestBody
   :: RequestBody (Many BodyDecoding) req
@@ -437,13 +437,14 @@ decodeRequestBody reqDec mcontent = case reqDec of
       else wrongBody
   where
     wrongBody = Left (status N.status415)
-    go :: [BodyDecoding a] -> N.MediaType -> LBS.ByteString -> Either TrasaErr (RequestBody Identity ('Body a))
+    go :: [BodyDecoding a] -> Maybe N.MediaType -> LBS.ByteString -> Either TrasaErr (RequestBody Identity ('Body a))
     go [] _ _ = Left (status N.status415)
-    go (BodyDecoding medias dec:decs) media bod = case any (flip mediaMatches media) medias of
-      True -> bimap (TrasaErr N.status415 . LBS.fromStrict . T.encodeUtf8)
-                    (RequestBodyPresent . Identity)
-                    (dec bod)
-      False -> go decs media bod
+    go (BodyDecoding medias dec:decs) mayMedia bod = let media = fromMaybe (NE.head medias) mayMedia in
+      case any (flip mediaMatches media) medias of
+        True -> bimap (TrasaErr N.status415 . LBS.fromStrict . T.encodeUtf8)
+                      (RequestBodyPresent . Identity)
+                      (dec bod)
+        False -> go decs mayMedia bod
 
 mediaMatches :: N.MediaType -> N.MediaType -> Bool
 mediaMatches _ "*/*" = True
@@ -461,7 +462,7 @@ encodeResponseBody medias (ResponseBody encs) res = go (toList (getMany encs))
     go :: [BodyEncoding response] -> Either TrasaErr Content
     go [] = Left (status N.status406)
     go (BodyEncoding accepts e:es) = case acceptable (toList accepts) medias of
-      Just typ -> Right (Content typ (e res))
+      Just typ -> Right (Content (Just typ) (e res))
       Nothing  -> go es
     acceptable :: [N.MediaType] -> [N.MediaType] -> Maybe N.MediaType
     acceptable [] _ = Nothing
@@ -470,8 +471,9 @@ encodeResponseBody medias (ResponseBody encs) res = go (toList (getMany encs))
       False -> acceptable as ms
 
 decodeResponseBody :: ResponseBody (Many BodyDecoding) response -> Content -> Either TrasaErr response
-decodeResponseBody (ResponseBody (Many decodings)) (Content name content) = go (toList decodings)
+decodeResponseBody (ResponseBody (Many decodings)) (Content mname content) = go (toList decodings)
   where
+    name = fromMaybe (NE.head $ bodyDecodingNames $ NE.head decodings) mname
     go :: [BodyDecoding response] -> Either TrasaErr response
     go [] = Left (status N.status415)
     go (BodyDecoding names dec:decs) = case any (N.matches name) names of
@@ -820,7 +822,7 @@ concealedToPrepared (Concealed route caps qrys req) f = f (Prepared route caps q
 
 -- | The HTTP content type and body.
 data Content = Content
-  { contentType :: !N.MediaType
+  { contentType :: !(Maybe N.MediaType)
   , contentData :: !LBS.ByteString
   } deriving (Show,Eq,Ord)
 
