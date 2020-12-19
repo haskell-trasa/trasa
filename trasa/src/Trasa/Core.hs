@@ -39,6 +39,7 @@ module Trasa.Core
   , Url(..)
   , encodeUrl
   , decodeUrl
+  , encodeUrlPieces
   -- ** Errors
   , TrasaErr(..)
   , status
@@ -363,7 +364,7 @@ linkWith
   -- ^ The route to encode
   -> Url
 linkWith toMeta (Prepared route captures querys _) =
-  encodePieces (metaPath m) (metaQuery m) captures querys
+  encodeUrlPieces (metaPath m) (metaQuery m) captures querys
   where m = toMeta route
 
 linkUrlWith
@@ -373,7 +374,7 @@ linkUrlWith
   -- ^ The route to encode
   -> Url
 linkUrlWith toMeta (PreparedUrl route captures querys) =
-  encodePieces (metaPath m) (metaQuery m) captures querys
+  encodeUrlPieces (metaPath m) (metaQuery m) captures querys
   where m = toMeta route
 
 data Payload = Payload
@@ -409,7 +410,7 @@ requestWith
 requestWith toMeta run (Prepared route captures querys reqBody) =
   let m = toMeta route
       method = metaMethod m
-      url = encodePieces (metaPath m) (metaQuery m) captures querys
+      url = encodeUrlPieces (metaPath m) (metaQuery m) captures querys
       content = encodeRequestBody (metaRequestBody m) reqBody
       respBodyDecs@(ResponseBody (Many decodings)) = metaResponseBody m
       accepts = bodyDecodingNames =<< decodings
@@ -477,13 +478,13 @@ decodeResponseBody (ResponseBody (Many decodings)) (Content name content) = go (
       True -> first (TrasaErr N.status400 . LBS.fromStrict . T.encodeUtf8) (dec content)
       False -> go decs
 
-encodePieces
+encodeUrlPieces
   :: Path CaptureEncoding captures
   -> Rec (Query CaptureEncoding) querys
   -> Rec Identity captures
   -> Rec Parameter querys
   -> Url
-encodePieces pathEncoding queryEncoding path querys =
+encodeUrlPieces pathEncoding queryEncoding path querys =
   Url (encodePath pathEncoding path) (QueryString (encodeQueries queryEncoding querys))
   where
     encodePath
