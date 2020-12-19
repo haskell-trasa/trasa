@@ -10,10 +10,10 @@ module Trasa.Client
   , Config(..)
   -- * Requests
   , clientWith
+  , routeToRequest
   ) where
 
 import Data.Word (Word16)
-import Data.Semigroup ((<>))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
@@ -98,8 +98,8 @@ clientWith toMeta config =
   requestWith toMeta run
   where
     run :: Method -> Url -> Maybe Content -> NE.NonEmpty N.MediaType -> IO (Either TrasaErr Content)
-    run method (Url path query) mcontent accepts  = do
-      response <- N.httpLbs req manager
+    run method url mcontent accepts  = do
+      response <- N.httpLbs req (configManager config)
       let status = N.responseStatus response
           body   = N.responseBody response
       return $ case status < N.status400 of
@@ -110,16 +110,37 @@ clientWith toMeta config =
             Just typ -> Right (Content typ body)
         False -> Left (TrasaErr status body)
       where
-        Config (Authority scheme host port) headers manager = config
-        req = N.defaultRequest
-          { N.method = TE.encodeUtf8 $ encodeMethod method
-          , N.secure = schemeToSecure scheme
-          , N.host = encodeAuthority host port
-          , N.port = maybe (schemeToPort scheme) fromIntegral port
-          , N.path = encodePathBS path
-          , N.queryString = encodeQueryBS query
-          , N.requestHeaders = encodeHeaders accepts mcontent headers
-          , N.requestBody = case mcontent of
-              Nothing -> N.RequestBodyLBS ""
-              Just (Content _ reqBody) -> N.RequestBodyLBS reqBody
-          }
+        req = mkRequest config method url mcontent accepts
+
+mkRequest :: Config -> Method -> Url -> Maybe Content -> NE.NonEmpty N.MediaType -> N.Request
+mkRequest config method (Url path query) mcontent accepts =
+    N.defaultRequest
+      { N.method = TE.encodeUtf8 $ encodeMethod method
+      , N.secure = schemeToSecure scheme
+      , N.host = encodeAuthority host port
+      , N.port = maybe (schemeToPort scheme) fromIntegral port
+      , N.path = encodePathBS path
+      , N.queryString = encodeQueryBS query
+      , N.requestHeaders = encodeHeaders accepts mcontent headers
+      , N.requestBody = case mcontent of
+          Nothing -> N.RequestBodyLBS ""
+          Just (Content _ reqBody) -> N.RequestBodyLBS reqBody
+      }
+  where
+    Config (Authority scheme host port) headers _ = config
+
+routeToRequest
+  :: Config
+  -> (forall caps qrys req resp. route caps qrys req resp -> MetaClient caps qrys req resp)
+  -> Prepared route response
+  -> N.Request
+routeToRequest config toMeta (Prepared route captures querys reqBody) =
+    mkRequest config method url content accepts
+  where
+    m = toMeta route
+    method = metaMethod m
+    url = encodeUrlPieces (metaPath m) (metaQuery m) captures querys
+    content = encodeRequestBody (metaRequestBody m) reqBody
+    ResponseBody (Many decodings) = metaResponseBody m
+    accepts = bodyDecodingNames =<< decodings
+
