@@ -429,7 +429,9 @@ decodeRequestBody
 decodeRequestBody reqDec mcontent = case reqDec of
   RequestBodyPresent decs -> case mcontent of
     Nothing -> wrongBody
-    Just (Content media bod) -> go (toList (getMany decs)) media bod
+    Just (Content media bod) -> case media of
+      Nothing -> let nel = getMany decs in go (toList nel) (NE.head $ bodyDecodingNames $ NE.head nel) bod
+      Just m -> go (toList (getMany decs)) m bod
   RequestBodyAbsent -> case mcontent of
     Nothing -> Right RequestBodyAbsent
     Just (Content _ bod) -> if LBS.null bod
@@ -437,14 +439,13 @@ decodeRequestBody reqDec mcontent = case reqDec of
       else wrongBody
   where
     wrongBody = Left (status N.status415)
-    go :: [BodyDecoding a] -> Maybe N.MediaType -> LBS.ByteString -> Either TrasaErr (RequestBody Identity ('Body a))
+    go :: [BodyDecoding a] -> N.MediaType -> LBS.ByteString -> Either TrasaErr (RequestBody Identity ('Body a))
     go [] _ _ = Left (status N.status415)
-    go (BodyDecoding medias dec:decs) mayMedia bod = let media = fromMaybe (NE.head medias) mayMedia in
-      case any (flip mediaMatches media) medias of
-        True -> bimap (TrasaErr N.status415 . LBS.fromStrict . T.encodeUtf8)
-                      (RequestBodyPresent . Identity)
-                      (dec bod)
-        False -> go decs mayMedia bod
+    go (BodyDecoding medias dec:decs) media bod = case any (flip mediaMatches media) medias of
+      True -> bimap (TrasaErr N.status415 . LBS.fromStrict . T.encodeUtf8)
+                    (RequestBodyPresent . Identity)
+                    (dec bod)
+      False -> go decs media bod
 
 mediaMatches :: N.MediaType -> N.MediaType -> Bool
 mediaMatches _ "*/*" = True
