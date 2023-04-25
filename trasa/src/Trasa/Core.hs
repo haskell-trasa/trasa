@@ -420,7 +420,7 @@ encodeRequestBody :: RequestBody (Many BodyEncoding) request -> RequestBody Iden
 encodeRequestBody RequestBodyAbsent RequestBodyAbsent = Nothing
 encodeRequestBody (RequestBodyPresent (Many encodings)) (RequestBodyPresent (Identity rq)) =
   case NE.head encodings of
-    BodyEncoding names encoding -> Just (Content (Just $NE.head names) (encoding rq))
+    BodyEncoding names encoding -> Just (Content (Just $ NE.head names) (encoding rq))
 
 decodeRequestBody
   :: RequestBody (Many BodyDecoding) req
@@ -1083,7 +1083,7 @@ noConstructorArgs = go
 -- @['Type'] -> ['Param'] -> 'Bodiedness' -> 'Type' -> 'Type'@,
 --
 -- which is the kind that 'Constructed' needs.
-hasConstructedKind :: [TyVarBndr] -> Q ()
+hasConstructedKind :: [TyVarBndr flag] -> Q ()
 hasConstructedKind = \case
   [captures, queries, bodiedness, response] -> do
     let correctKind = True
@@ -1102,15 +1102,15 @@ hasConstructedKind = \case
     paramKind = TH.ConT ''Param
     bodiednessKind = TH.ConT ''Bodiedness
     isListType = \case
-      KindedTV _ (TH.AppT TH.ListT k) -> k == typeKind
+      KindedTV _ _ (TH.AppT TH.ListT k) -> k == typeKind
       _ -> False
     isListParam = \case
-      KindedTV _ (TH.AppT TH.ListT k) -> k == paramKind
+      KindedTV _ _ (TH.AppT TH.ListT k) -> k == paramKind
       _ -> False
     isBodiedness = \case
-      KindedTV _ k -> k == bodiednessKind
+      KindedTV _ _ k -> k == bodiednessKind
       _ -> False
     isType = \case
-      PlainTV _ -> True
-      KindedTV _ TH.StarT -> True
+      PlainTV _ _ -> True
+      KindedTV _ _ TH.StarT -> True
       _ -> False

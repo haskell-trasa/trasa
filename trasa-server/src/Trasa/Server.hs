@@ -99,7 +99,7 @@ serveWith toMeta makeResponse madeRouter =
           Nothing -> respond (Wai.responseLBS N.status415 [] "Accept header missing or malformed")
           Just accepts -> do
             content <- for (M.lookup hContentType headers >>= N.parseAccept . TE.encodeUtf8) $ \typ ->
-              Content typ <$> Wai.strictRequestBody req
+              Content (Just typ) <$> Wai.strictRequestBody req
             let queryStrings = decodeQuery (Wai.queryString req)
                 url = Url (Wai.pathInfo req) queryStrings
                 dispatch = dispatchWith toMeta makeResponse madeRouter method accepts url content
@@ -107,9 +107,9 @@ serveWith toMeta makeResponse madeRouter =
               (resErr,newHeaders) -> case join resErr of
                 Left (TrasaErr stat errBody) ->
                   respond (Wai.responseLBS stat (encodeHeaders newHeaders) errBody)
-                Right (Content typ lbs) -> do
-                  let cType = TE.decodeUtf8 (N.renderHeader typ)
-                      encodedHeaders = encodeHeaders (M.insert hContentType cType newHeaders)
+                Right (Content mtyp lbs) -> do
+                  let mkCType typ = TE.decodeUtf8 (N.renderHeader typ)
+                      encodedHeaders = encodeHeaders (maybe id (M.insert hContentType . mkCType) mtyp $ newHeaders)
                   respond (Wai.responseLBS N.status200 encodedHeaders lbs)
   where
     encodeHeaders = M.toList . fmap TE.encodeUtf8

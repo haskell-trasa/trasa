@@ -71,9 +71,12 @@ instance MP.Stream Stream where
     | null s    = Nothing
     | otherwise = Just $ coerce (splitAt n s)
   takeWhile_ = coerce . span
-  -- NOTE Do not eta-reduce these (breaks inlining)
-  reachOffset o pst = reachOffset' (\n (Stream l) -> coerce $ splitAt n l) L.foldl' (fmap prettyCharToken . coerce) (prettyCharToken . coerce) (coerce $ LexemeChar ReservedCharNewline, coerce $ LexemeChar ReservedCharTab) o (coerce pst)
+
+-- NOTE Do not eta-reduce these (breaks inlining)
+instance MP.VisualStream Stream where
   showTokens _ = L.concatMap prettyToken . NE.toList
+instance MP.TraversableStream Stream where
+  reachOffset o pst = reachOffset' (\n (Stream l) -> coerce $ splitAt n l) L.foldl' (fmap prettyCharToken . coerce) (prettyCharToken . coerce) (coerce $ LexemeChar ReservedCharNewline, coerce $ LexemeChar ReservedCharTab) o (coerce pst)
 
 prettyCharToken = \case
   LexemeSpace _ -> ' '
@@ -147,7 +150,7 @@ reachOffset'
      -- ^ Offset to reach
   -> MP.PosState Stream
      -- ^ Initial 'MP.PosState' to use
-  -> (MP.SourcePos, String, MP.PosState Stream)
+  -> (Maybe String, MP.PosState Stream)
      -- ^ Reached 'SourcePos', line at which 'SourcePos' is located, updated
      -- 'MP.PosState'
 reachOffset' splitAt'
@@ -157,8 +160,7 @@ reachOffset' splitAt'
              (newlineTok, tabTok)
              o
              MP.PosState {..} =
-  ( spos
-  , case expandTab pstateTabWidth
+  ( Just $ case expandTab pstateTabWidth
            . addPrefix
            . f
            . fromToks

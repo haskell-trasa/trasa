@@ -37,17 +37,18 @@ library
     Trasa.Reflex.Implicit
   build-depends:
     , base >= 4.9 && < 5
-    , bytestring == 0.10.*
-    , text == 1.2.*
-    , http-types >= 0.9
-    , http-media >= 0.6 && < 0.8
+    , bytestring >= 0.10 && < 0.12
     , containers >= 0.5 && < 0.7
-    , jsaddle > 0.8 && < 0.10
     , ghcjs-dom > 0.7 && < 0.11
+    , http-media >= 0.6 && < 0.8
+    , http-types >= 0.9
+    , jsaddle > 0.8 && < 0.10
+    , quantification >= 0.7 && < 0.8
     , reflex == 0.5.*
     , reflex-dom == 0.4.*
+    , text >= 2.0 && < 2.1
+    , topaz >= 0.7 && < 0.8
     , trasa == 0.4.*
-    , quantification == 0.5.0
   default-language:
     Haskell2010
 

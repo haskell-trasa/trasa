@@ -104,7 +104,7 @@ metaInstanceCodec (RoutesRep routeStr routeReps) = do
 #if !MIN_VERSION_template_haskell(2,15,0)
   let mkTypeFamily str strat = TySynInstD (mkName str) (TySynEqn [ConT route] strat)
 #else
-  let mkTypeFamily str strat = TySynInstD (TySynEqn (Just [PlainTV (mkName str)]) (ConT route) strat)
+  let mkTypeFamily str strat = TySynInstD (TySynEqn (Just [PlainTV (mkName str) ()]) (ConT route) strat)
 #endif
       typeFamilies =
         [ mkTypeFamily "CaptureStrategy" capStrat
@@ -132,7 +132,7 @@ metaInstanceCodec (RoutesRep routeStr routeReps) = do
       ListRep (CodecRep _ codec _) -> Just codec
     routeRepToMetaPattern :: RouteRep CodecRep -> Match
     routeRepToMetaPattern (RouteRep name method caps qrys req res) =
-      Match (ConP (mkName name) []) (NormalB expr) []
+      Match (ConP (mkName name) [] []) (NormalB expr) []
       where
         expr =
           ConE 'Meta `AppE`

@@ -27,7 +27,7 @@ executable trasa-init
   main-is:
     Main.hs
   build-depends:
-    , base >= 4.11 && < 4.15
+    , base >= 4.11 && < 5
     , directory
     , file-embed
   ghc-options:
