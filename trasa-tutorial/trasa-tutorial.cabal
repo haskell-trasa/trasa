@@ -31,7 +31,7 @@ library
     Trasa.Tutorial
   build-depends:
     , base >= 4.9 && < 5
-    , text == 1.2.*
+    , text >= 2.0 && < 2.1
     , trasa == 0.4.*
   default-language:
     Haskell2010

@@ -132,7 +132,7 @@ metaInstanceCodec (RoutesRep routeStr routeReps) = do
       ListRep (CodecRep _ codec _) -> Just codec
     routeRepToMetaPattern :: RouteRep CodecRep -> Match
     routeRepToMetaPattern (RouteRep name method caps qrys req res) =
-      Match (ConP (mkName name) []) (NormalB expr) []
+      Match (ConP (mkName name) [] []) (NormalB expr) []
       where
         expr =
           ConE 'Meta `AppE`
